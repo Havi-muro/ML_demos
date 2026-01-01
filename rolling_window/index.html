@@ -1,1 +1,601 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Animated Rolling Window: Fill Nulls & Smooth</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #111827;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+    --accent: #60a5fa;
+    --accent2: #22c55e;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --grid: #1f2937;
+    --window: rgba(96,165,250,0.12);
+    --window-border: rgba(96,165,250,0.6);
+  }
+
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+    background: linear-gradient(180deg, var(--bg), #0b1220);
+    color: var(--text);
+  }
+
+  .container {
+    max-width: 1000px;
+    margin: 32px auto;
+    padding: 24px;
+    background: linear-gradient(180deg, var(--panel), #0d1628);
+    border: 1px solid #1f2937;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02);
+  }
+
+  h1 { font-size: 1.35rem; margin: 0 0 8px; letter-spacing: 0.2px; }
+  .sub { color: var(--muted); margin-bottom: 16px; font-size: 0.95rem; }
+
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 16px;
+    align-items: center;
+    padding: 16px;
+    border-radius: 12px;
+    background: rgba(96, 165, 250, 0.08);
+    border: 1px dashed rgba(96,165,250,0.25);
+    margin-bottom: 16px;
+  }
+  .control-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .control-label { font-size: 0.9rem; opacity: 0.9; min-width: 160px; }
+  input[type="range"] { width: 240px; }
+  .checkbox-group { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  .play-controls { display: flex; gap: 8px; align-items: center; }
+  .btn {
+    padding: 8px 12px; border-radius: 10px; border: 1px solid #2b3444;
+    background: #13203a; color: var(--text); cursor: pointer; transition: all 0.15s ease;
+  }
+  .btn:hover { filter: brightness(1.15); }
+  .btn:active { transform: translateY(1px); }
+
+  .legend {
+    display: flex; gap: 16px; align-items: center; font-size: 0.85rem; color: var(--muted);
+    margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .legend .key { display: inline-flex; align-items: center; gap: 8px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 2px solid transparent; }
+  .dot.blue { background: var(--accent); }
+  .dot.green { background: var(--accent2); }
+  .dot.amber { background: var(--warn); }
+  .dot.red { background: transparent; border-color: var(--danger); }
+
+  .rows {
+    padding: 12px 12px 16px;
+    background: rgba(17,24,39,0.45);
+    border-radius: 12px;
+    border: 1px solid #1f2937;
+  }
+  .row-title { color: var(--muted); font-size: 0.85rem; margin-bottom: 6px; }
+  .row {
+    display: grid;
+    gap: 8px;
+    padding: 8px 8px 16px 8px;
+    overflow-x: auto;
+  }
+  .cell {
+    text-align: center; padding: 6px 4px; border-radius: 8px; background: #0c1221;
+    border: 1px solid #1f2937; font-variant-numeric: tabular-nums; font-size: 0.9rem; position: relative;
+  }
+  .cell .idx { position: absolute; top: -6px; left: 6px; font-size: 0.7rem; color: var(--muted); opacity: 0.8; }
+  .cell.original { color: var(--text); }
+  .cell.null { color: var(--danger); border-color: rgba(239,68,68,0.4); }
+  .cell.filled { color: var(--accent2); border-color: rgba(34,197,94,0.5); background: rgba(34,197,94,0.08); }
+  .cell.smoothed { color: var(--warn); border-color: rgba(245,158,11,0.5); background: rgba(245,158,11,0.08); }
+  .cell.in-window { background: rgba(96,165,250,0.10); border-color: var(--window-border); }
+  .cell.center { border-color: var(--accent2); box-shadow: 0 0 0 2px rgba(34,197,94,0.35) inset; }
+
+  .badge {
+    position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%);
+    font-size: 0.7rem; color: var(--muted);
+  }
+
+  .chart {
+    margin-top: 8px;
+    background: rgba(17,24,39,0.6);
+    border: 1px solid #1f2937;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  svg { display: block; width: 100%; height: 360px; }
+
+  .axis line, .axis path { stroke: #344156; }
+  .grid line { stroke: var(--grid); }
+  .series-line { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .series-current { stroke: url(#lineGradient); stroke-width: 2.6; }
+  .series-original { stroke: rgba(96,165,250,0.35); stroke-width: 1.6; }
+
+  .pt { stroke-width: 1.4; }
+  .pt-original { fill: var(--accent); stroke: rgba(255,255,255,0.12); }
+  .pt-null { fill: rgba(0,0,0,0); stroke: var(--danger); }
+  .pt-filled { fill: var(--accent2); stroke: rgba(255,255,255,0.16); }
+  .pt-smoothed { fill: var(--warn); stroke: rgba(255,255,255,0.16); }
+
+  .win-band { fill: var(--window); stroke: var(--window-border); stroke-dasharray: 4 3; }
+  .win-center { stroke: var(--accent2); stroke-width: 2; stroke-dasharray: 6 4; }
+  .win-label { fill: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>Animated Rolling Window: Fill <em>null</em> values & Smooth a Time Series</h1>
+    <div class="sub">
+      The window (highlighted) moves across the data row and the chart.  
+      Enable <strong>Fill nulls</strong> to replace missing values with a rolling mean (gaps disappear). Optionally apply <strong>Smooth</strong> (rolling mean).
+    </div>
+
+    <div class="controls">
+      <div class="control-group">
+        <span class="control-label">Rolling window size (odd):</span>
+        <input id="win" type="range" min="3" max="13" step="1" value="5" />
+        <span id="winLabel">5</span>
+      </div>
+      <div class="checkbox-group">
+        <label><input id="doFill" type="checkbox" checked /> Fill nulls (rolling mean)</label>
+        <label><input id="doSmooth" type="checkbox" /> Smooth (rolling mean)</label>
+      </div>
+      <div class="play-controls">
+        <button id="togglePlay" class="btn">▶ Play</button>
+        <button id="step" class="btn">Step</button>
+        <label class="control-label">Speed:</label>
+        <input id="speed" type="range" min="120" max="1200" step="40" value="500" />
+        <span id="speedLabel">500 ms</span>
+        <button id="reset" class="btn">Reset</button>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="key"><span class="dot blue"></span> Original values</div>
+      <div class="key"><span class="dot red"></span> Null (missing)</div>
+      <div class="key"><span class="dot green"></span> Filled (rolling mean)</div>
+      <div class="key"><span class="dot amber"></span> Smoothed (rolling mean)</div>
+    </div>
+
+    <div class="rows">
+      <div class="row-title">Original row</div>
+      <div id="rowOriginal" class="row"></div>
+
+      <div class="row-title">Current row (after Fill/Smooth)</div>
+      <div id="rowCurrent" class="row"></div>
+    </div>
+
+    <div class="chart">
+      <svg id="svg" viewBox="0 0 960 360" preserveAspectRatio="xMidYMid meet" aria-label="Rolling fill & smooth chart">
+        <defs>
+          <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#60a5fa"/>
+            <stop offset="50%" stop-color="#22c55e"/>
+            <stop offset="100%" stop-color="#f59e0b"/>
+          </linearGradient>
+        </defs>
+        <g id="grid"></g>
+        <g id="axes"></g>
+        <g id="lines"></g>
+        <g id="points"></g>
+        <g id="windowOverlay"></g>
+      </svg>
+    </div>
+  </div>
+
+<script>
+(function(){
+  // ---------- Demo Data ----------
+  const original = [
+    9, 10, 12, 11, 13, null, 15, null, 17, 16,
+    14, 13, null, 19, 20, 22, 30, 23, 24, null,
+    26, 28, 27, 25, 24, 23, null, 22, 21, 20
+  ];
+  const N = original.length;
+
+  // ---------- Utilities ----------
+  const isMissing = (v) => (v == null || Number.isNaN(v));
+  const makeOdd = (w) => (w % 2 === 0 ? w + 1 : w);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  function rollingFill(arr, win){
+    const w = makeOdd(win), half = Math.floor(w/2), out = arr.slice();
+    for (let i = 0; i < arr.length; i++) {
+      if (isMissing(arr[i])) {
+        let sum = 0, count = 0;
+        for (let j = i - half; j <= i + half; j++) {
+          if (j >= 0 && j < arr.length && !isMissing(arr[j])) {
+            sum += arr[j]; count++;
+          }
+        }
+        if (count > 0) out[i] = sum / count;
+      }
+    }
+    return out;
+  }
+  function rollingSmooth(arr, win){
+    const w = makeOdd(win), half = Math.floor(w/2), out = new Array(arr.length);
+    for (let i = 0; i < arr.length; i++) {
+      let sum = 0, count = 0;
+      for (let j = i - half; j <= i + half; j++) {
+        if (j >= 0 && j < arr.length && !isMissing(arr[j])) {
+          sum += arr[j]; count++;
+        }
+      }
+      out[i] = count > 0 ? sum / count : null;
+    }
+    return out;
+  }
+
+  // ---------- DOM ----------
+  const elRowOriginal = document.getElementById('rowOriginal');
+  const elRowCurrent  = document.getElementById('rowCurrent');
+  const svg = document.getElementById('svg');
+  const gGrid = document.getElementById('grid');
+  const gAxes = document.getElementById('axes');
+  const gLines = document.getElementById('lines');
+  const gPoints = document.getElementById('points');
+  const gWin = document.getElementById('windowOverlay');
+
+  const winInput = document.getElementById('win');
+  const winLabel = document.getElementById('winLabel');
+  const doFill = document.getElementById('doFill');
+  const doSmooth = document.getElementById('doSmooth');
+  const togglePlayBtn = document.getElementById('togglePlay');
+  const stepBtn = document.getElementById('step');
+  const speedInput = document.getElementById('speed');
+  const speedLabel = document.getElementById('speedLabel');
+  const resetBtn = document.getElementById('reset');
+
+  // ---------- Chart geometry ----------
+  const view = { w: 960, h: 360 };
+  const margin = { top: 36, right: 36, bottom: 44, left: 60 };
+  const chart = {
+    x0: margin.left,
+    y0: margin.top,
+    w: view.w - margin.left - margin.right,
+    h: view.h - margin.top - margin.bottom
+  };
+  const xScale = (i) => chart.x0 + (i / (N - 1)) * chart.w;
+
+  function makeYScale(series) {
+    const vals = series.filter(v => !isMissing(v));
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const pad = Math.max(1, (max - min) * 0.1);
+    const yMin = min - pad, yMax = max + pad;
+    const y = (v) => chart.y0 + chart.h - ((v - yMin) / (yMax - yMin)) * chart.h;
+    return { yMin, yMax, y };
+  }
+
+  // ---------- Helpers ----------
+  const clearNode = (node) => { while (node.firstChild) node.removeChild(node.firstChild); };
+
+  function drawGridAndAxes(yScale) {
+    clearNode(gGrid); clearNode(gAxes);
+    const ticks = 5;
+    for (let t = 0; t <= ticks; t++) {
+      const frac = t / ticks;
+      const y = chart.y0 + chart.h - frac * chart.h;
+      const val = yScale.yMin + frac * (yScale.yMax - yScale.yMin);
+      const gl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      gl.setAttribute('x1', chart.x0);
+      gl.setAttribute('x2', chart.x0 + chart.w);
+      gl.setAttribute('y1', y);
+      gl.setAttribute('y2', y);
+      gl.setAttribute('class', 'grid');
+      gGrid.appendChild(gl);
+
+      const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      txt.setAttribute('x', chart.x0 - 10);
+      txt.setAttribute('y', y + 4);
+      txt.setAttribute('text-anchor', 'end');
+      txt.setAttribute('fill', '#94a3b8');
+      txt.setAttribute('font-size', '12');
+      txt.textContent = val.toFixed(1);
+      gAxes.appendChild(txt);
+    }
+    const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    xAxis.setAttribute('x1', chart.x0);
+    xAxis.setAttribute('x2', chart.x0 + chart.w);
+    xAxis.setAttribute('y1', chart.y0 + chart.h);
+    xAxis.setAttribute('y2', chart.y0 + chart.h);
+    xAxis.setAttribute('class', 'axis');
+    gAxes.appendChild(xAxis);
+    for (let i = 0; i < N; i += 5) {
+      const x = xScale(i);
+      const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      tick.setAttribute('x1', x);
+      tick.setAttribute('x2', x);
+      tick.setAttribute('y1', chart.y0 + chart.h);
+      tick.setAttribute('y2', chart.y0 + chart.h + 6);
+      tick.setAttribute('class', 'axis');
+      gAxes.appendChild(tick);
+
+      const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      txt.setAttribute('x', x);
+      txt.setAttribute('y', chart.y0 + chart.h + 20);
+      txt.setAttribute('text-anchor', 'middle');
+      txt.setAttribute('fill', '#94a3b8');
+      txt.setAttribute('font-size', '12');
+      txt.textContent = i.toString();
+      gAxes.appendChild(txt);
+    }
+  }
+
+  function pathFromSeries(series, yScale) {
+    const segments = [];
+    let seg = [];
+    for (let i = 0; i < series.length; i++) {
+      const v = series[i];
+      if (isMissing(v)) {
+        if (seg.length > 0) { segments.push(seg); seg = []; }
+      } else {
+        seg.push([xScale(i), yScale.y(v)]);
+      }
+    }
+    if (seg.length > 0) segments.push(seg);
+    return segments.map(points => points.reduce((acc, [x,y], idx) => acc + (idx === 0 ? `M${x},${y}` : ` L${x},${y}`), ''));
+  }
+
+  function drawSeriesLines(series, yScale, className) {
+    const paths = pathFromSeries(series, yScale);
+    for (const d of paths) {
+      const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      pathEl.setAttribute('d', d);
+      pathEl.setAttribute('class', `series-line ${className}`);
+      gLines.appendChild(pathEl);
+    }
+  }
+
+  // ---------- Rows ----------
+  function renderRow(container, arr, mode) {
+    clearNode(container);
+    // Make the grid match N columns
+    container.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
+    for (let i = 0; i < arr.length; i++) {
+      const v = arr[i];
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.idx = i;
+      const idx = document.createElement('div');
+      idx.className = 'idx';
+      idx.textContent = i.toString();
+
+      let content = '';
+      let cls = 'original';
+      if (mode === 'original') {
+        if (isMissing(v)) { cls = 'null'; content = '—'; }
+        else { content = Number(v).toFixed(0); }
+      } else {
+        if (isMissing(v)) { cls = 'null'; content = '—'; }
+        else { content = Number(v).toFixed(2); }
+      }
+      cell.classList.add(cls);
+      cell.textContent = content;     // set text
+      cell.appendChild(idx);          // then add index label
+      container.appendChild(cell);
+    }
+  }
+
+  // ---------- Window overlay ----------
+  function ensureWindowOverlay() {
+    if (!document.getElementById('winBand')) {
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('id', 'winBand');
+      rect.setAttribute('class', 'win-band');
+      gWin.appendChild(rect);
+    }
+    if (!document.getElementById('winCenter')) {
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('id', 'winCenter');
+      line.setAttribute('class', 'win-center');
+      gWin.appendChild(line);
+    }
+    if (!document.getElementById('winLabel')) {
+      const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      txt.setAttribute('id', 'winLabel');
+      txt.setAttribute('class', 'win-label');
+      txt.setAttribute('x', chart.x0 + 6);
+      txt.setAttribute('y', chart.y0 + 16);
+      gWin.appendChild(txt);
+    }
+  }
+
+  function updateWindowOverlay(centerIdx, w, yScale, currentSeries) {
+    ensureWindowOverlay();
+    const half = Math.floor(makeOdd(w)/2);
+    const i0 = clamp(centerIdx - half, 0, N-1);
+    const i1 = clamp(centerIdx + half, 0, N-1);
+
+    const x0 = xScale(i0);
+    const x1 = xScale(i1);
+    const rect = document.getElementById('winBand');
+    rect.setAttribute('x', x0);
+    rect.setAttribute('y', chart.y0);
+    rect.setAttribute('width', Math.max(2, x1 - x0));
+    rect.setAttribute('height', chart.h);
+
+    const centerX = xScale(centerIdx);
+    const centerLine = document.getElementById('winCenter');
+    centerLine.setAttribute('x1', centerX);
+    centerLine.setAttribute('x2', centerX);
+    centerLine.setAttribute('y1', chart.y0);
+    centerLine.setAttribute('y2', chart.y0 + chart.h);
+
+    const txt = document.getElementById('winLabel');
+    txt.textContent = `window ${makeOdd(w)} [${i0}…${i1}] · center ${centerIdx}`;
+  }
+
+  function highlightRows(centerIdx, w, currentSeries) {
+    const half = Math.floor(makeOdd(w)/2);
+    const i0 = clamp(centerIdx - half, 0, N-1);
+    const i1 = clamp(centerIdx + half, 0, N-1);
+    const origCells = elRowOriginal.children;
+    const curCells = elRowCurrent.children;
+
+    // Clear previous highlights & badges
+    for (let i = 0; i < N; i++) {
+      origCells[i].classList.remove('in-window', 'center');
+      curCells[i].classList.remove('in-window', 'center');
+      const b1 = origCells[i].querySelector('.badge'); if (b1) origCells[i].removeChild(b1);
+      const b2 = curCells[i].querySelector('.badge'); if (b2) curCells[i].removeChild(b2);
+    }
+    for (let j = i0; j <= i1; j++) {
+      origCells[j].classList.add('in-window');
+      curCells[j].classList.add('in-window');
+    }
+    origCells[centerIdx].classList.add('center');
+    curCells[centerIdx].classList.add('center');
+
+    // Badges at center
+    const badgeO = document.createElement('div');
+    badgeO.className = 'badge';
+    const vOrig = original[centerIdx];
+    badgeO.textContent = isMissing(vOrig) ? 'orig: —' : `orig ${Number(vOrig).toFixed(2)}`;
+    origCells[centerIdx].appendChild(badgeO);
+
+    const badgeC = document.createElement('div');
+    badgeC.className = 'badge';
+    const vCur = currentSeries[centerIdx];
+    badgeC.textContent = isMissing(vCur) ? 'current: —' : `current ${Number(vCur).toFixed(2)}`;
+    curCells[centerIdx].appendChild(badgeC);
+  }
+
+  // ---------- State & Update ----------
+  let currentIndex = 0;
+  let timer = null;
+  let playing = false;
+  let currentSeries = [];
+
+  function computeCurrentSeries(win, fillEnabled, smoothEnabled) {
+    const w = makeOdd(win);
+    let series = original.slice();
+    if (fillEnabled) series = rollingFill(series, w);
+    if (smoothEnabled) series = rollingSmooth(series, w);
+    return series;
+  }
+
+  function drawAll(seriesForYScale, seriesOriginal, seriesCurrent) {
+    clearNode(gLines); clearNode(gPoints);
+    const yScale = makeYScale(seriesForYScale);
+    drawGridAndAxes(yScale);
+
+    // Faint original line and points (with null gaps)
+    drawSeriesLines(seriesOriginal, yScale, 'series-original');
+    for (let i = 0; i < seriesOriginal.length; i++) {
+      const v = seriesOriginal[i];
+      const cx = xScale(i);
+      const cy = isMissing(v) ? (chart.y0 + chart.h - 2) : yScale.y(v);
+      const cls = isMissing(v) ? 'pt-null' : 'pt-original';
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', 4.0);
+      c.setAttribute('class', `pt ${cls}`);
+      gPoints.appendChild(c);
+    }
+
+    // Current line (gradient) and points
+    drawSeriesLines(seriesCurrent, yScale, 'series-current');
+    for (let i = 0; i < seriesCurrent.length; i++) {
+      const vCur = seriesCurrent[i];
+      const cx = xScale(i);
+      const cy = isMissing(vCur) ? (chart.y0 + chart.h - 2) : yScale.y(vCur);
+      let cls = 'pt-original';
+      const vOrig = original[i];
+      const isNullOrig = isMissing(vOrig);
+      const isNullCur  = isMissing(vCur);
+      if (isNullCur) cls = 'pt-null';
+      else if (doSmooth.checked) cls = 'pt-smoothed';
+      else if (doFill.checked && isNullOrig && !isNullCur) cls = 'pt-filled';
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', 5.0);
+      c.setAttribute('class', `pt ${cls}`);
+      gPoints.appendChild(c);
+    }
+    return yScale;
+  }
+
+  function update(redrawRowsAndChart=true) {
+    const w = makeOdd(Number(winInput.value));
+    winLabel.textContent = w.toString();
+    speedLabel.textContent = `${Number(speedInput.value)} ms`;
+    const fillEnabled = doFill.checked;
+    const smoothEnabled = doSmooth.checked;
+
+    currentSeries = computeCurrentSeries(w, fillEnabled, smoothEnabled);
+
+    if (redrawRowsAndChart) {
+      renderRow(elRowOriginal, original, 'original');
+      renderRow(elRowCurrent, currentSeries, 'current');
+    }
+
+    const seriesForYScale = (fillEnabled || smoothEnabled) ? currentSeries : original;
+    const yScale = drawAll(seriesForYScale, original, currentSeries);
+
+    // Window visuals
+    highlightRows(currentIndex, w, currentSeries);
+    updateWindowOverlay(currentIndex, w, yScale, currentSeries);
+  }
+
+  // ---------- Animation controls ----------
+  function stepForward() {
+    currentIndex = (currentIndex + 1) % N;
+    // We keep chart; only move window highlight/overlay
+    const w = makeOdd(Number(winInput.value));
+    const yScale = makeYScale((doFill.checked || doSmooth.checked) ? currentSeries : original);
+    highlightRows(currentIndex, w, currentSeries);
+    updateWindowOverlay(currentIndex, w, yScale, currentSeries);
+  }
+
+  function start() {
+    if (playing) return;
+    playing = true;
+    togglePlayBtn.textContent = '⏸ Pause';
+    timer = setInterval(stepForward, Number(speedInput.value));
+  }
+
+  function stop() {
+    playing = false;
+    togglePlayBtn.textContent = '▶ Play';
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  // ---------- Events ----------
+  winInput.addEventListener('input', () => { stop(); update(true); });
+  doFill.addEventListener('change', () => { update(true); });
+  doSmooth.addEventListener('change', () => { update(true); });
+
+  togglePlayBtn.addEventListener('click', () => { playing ? stop() : start(); });
+  stepBtn.addEventListener('click', () => { stop(); stepForward(); });
+
+  speedInput.addEventListener('input', () => {
+    speedLabel.textContent = `${Number(speedInput.value)} ms`;
+    if (playing) { stop(); start(); }
+  });
+
+  resetBtn.addEventListener('click', () => {
+    stop();
+    winInput.value = 5;
+    doFill.checked = true;
+    doSmooth.checked = false;
+    speedInput.value = 500;
+    currentIndex = 0;
+    update(true);
+  });
+
+  // ---------- Initial render ----------
+  update(true);
+})();
+</script>
+</body>
+</html>
+
