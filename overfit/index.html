@@ -2,244 +2,389 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Interactive 2D Decision Hyperplane (Perceptron/MLP)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; background: #0e1320; color: #e6edf3; }
-    h1 { margin: 0 0 8px; font-size: 20px; }
-    .container { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
-    .panel { background: #101826; border: 1px solid #1f2937; border-radius: 10px; padding: 12px; }
-    label { display: block; margin: 10px 0 6px; }
-    input[type="range"] { width: 100%; }
-    input[type="number"] { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid #374151; background: #0b1220; color: #e6edf3; }
-    .row { display: grid; grid-template-columns: 1fr 90px; gap: 8px; align-items: center; }
-    .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-    button { padding: 8px 12px; border-radius: 6px; border: 1px solid #1f2937; background: #0b1220; color: #e6edf3; cursor: pointer; }
-    button:hover { filter: brightness(1.1); }
-    .legend { margin-top: 8px; font-size: 14px; }
-    .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; margin-right: 6px; }
-    canvas { border: 1px solid #1f2937; border-radius: 10px; background: #0b1220; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Underfitting & Overfitting in 2D (kNN) — Two Populations</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#94a3b8;
+    --blue:#60a5fa; --orange:#fb923c; --green:#22c55e; --red:#ef4444; --grid:#1f2937; --amber:#f59e0b;
+  }
+  body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
+       background:linear-gradient(180deg,var(--bg),#0b1220); color:var(--text);}
+  .container{max-width:1100px; margin:28px auto; padding:24px; background:linear-gradient(180deg,var(--panel),#0d1628);
+             border:1px solid #1f2937; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.02);}
+  h1{font-size:1.35rem; margin:0 0 8px;}
+  .sub{color:var(--muted); margin-bottom:16px; line-height:1.45;}
+  .controls{display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:16px; border-radius:12px;
+            background:rgba(96,165,250,.08); border:1px dashed rgba(96,165,250,.25); margin-bottom:12px;}
+  .ctrl{display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
+  .ctrl label{min-width:260px; color:var(--text); opacity:.95;}
+  input[type="range"]{width:240px;}
+  .btn{padding:8px 12px; border-radius:10px; border:1px solid #2b3444; background:#13203a; color:var(--text); cursor:pointer;}
+  .btn:hover{filter:brightness(1.15);}
+  .legend .swatch{width:12px; height:12px; border-radius:50%;}
+  .sw-blue{background:var(--blue);} .sw-orange{background:var(--orange);}
+  .sw-surface{background: linear-gradient(90deg, rgba(96,165,250,.25), rgba(251,146,60,.25)); border:1px solid #2b3444;}
+  canvas{width:100%; height:520px; background:#0b1220; border:1px solid #1f2937; border-radius:12px;}
+
+  .metrics{display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin:10px 0 0;}
+  .card{background:#0c1221; border:1px solid #1f2937; border-radius:12px; padding:12px;}
+  .k{color:var(--muted); font-size:.9rem;}
+  .v{font-size:1.05rem; font-variant-numeric:tabular-nums;}
+  .flag{font-weight:600;}
+  .tips{margin-top:14px; background:#0c1221; border:1px solid #1f2937; border-radius:12px; padding:12px;}
+  .note{color:var(--muted); font-size:.92rem;}
+</style>
 </head>
 <body>
-  <h1>Interactive Decision Hyperplane (Perceptron/MLP)</h1>
-  <p class="mono">Boundary: <span id="eq">w₁·x + w₂·y + b = 0</span> &nbsp;|&nbsp; <span id="metrics">Accuracy: —</span></p>
-
-  <div class="container">
-    <!-- Controls -->
-    <section class="panel">
-      <label>Weight w₁</label>
-      <div class="row">
-        <input id="w1" type="range" min="-10" max="10" step="0.1" value="0.3">
-        <input id="w1n" type="number" step="0.1" value="0.3">
-      </div>
-
-      <label>Weight w₂</label>
-      <div class="row">
-        <input id="w2" type="range" min="-10" max="10" step="0.1" value="0.3">
-        <input id="w2n" type="number" step="0.1" value="0.3">
-      </div>
-
-      <label>Bias b</label>
-      <div class="row">
-        <input id="b" type="range" min="-12" max="12" step="0.1" value="0">
-        <input id="bn" type="number" step="0.1" value="0">
-      </div>
-
-      <div class="btns">
-        <button id="reset">Reset (poor boundary)</button>
-        <button id="perfect">Perfect separator</button>
-      </div>
-
-      <div class="legend">
-        <span><span class="sw" style="background:#3b82f6"></span>Class +1 (blue)</span>&nbsp;&nbsp;
-        <span><span class="sw" style="background:#f59e0b"></span>Class −1 (orange)</span>&nbsp;&nbsp;
-        <span><span class="sw" style="background:#ef4444"></span>Red outline = misclassified</span>
-      </div>
-    </section>
-
-    <!-- Plot -->
-    <section class="panel">
-      <!-- Use explicit width/height attributes to avoid CSS scaling surprises -->
-      <canvas id="plot" width="900" height="540"></canvas>
-    </section>
+<div class="container">
+  <h1>Underfitting & Overfitting (kNN) on Two Populations in 2D</h1>
+  <div class="sub">
+    We generate two Gaussian clusters (populations) in the plane.  
+    Use <strong>k (neighbors)</strong> to control model complexity: low <strong>k</strong> tends to <strong>overfit</strong>; high <strong>k</strong> tends to <strong>underfit</strong>.  
+    Blue = train, Orange = test, background = decision surface (predicted class).
   </div>
 
-  <script>
-    // ====== Deterministic dataset: two fixed, linearly separable clusters ======
-    // Cluster A (+1) centered near (5,5); Cluster B (-1) centered near (1,1)
-    const points = [];
-    (function buildDataset() {
-      // Class +1 (blue)
-      for (let i = 0; i < 20; i++) {
-        const x = 4.6 + (i % 5) * 0.35 + Math.sin(i * 0.7) * 0.15;
-        const y = 4.7 + Math.floor(i / 5) * 0.35 + Math.cos(i * 0.8) * 0.15;
-        points.push({ x, y, label: +1 });
-      }
-      // Class -1 (orange)
-      for (let i = 0; i < 20; i++) {
-        const x = 0.9 + (i % 5) * 0.30 + Math.sin(i * 1.1) * 0.12;
-        const y = 0.9 + Math.floor(i / 5) * 0.30 + Math.cos(i * 1.0) * 0.12;
-        points.push({ x, y, label: -1 });
-      }
-    })();
+  <div class="controls">
+    <div class="ctrl">
+      <label>k (neighbors, odd): <span id="kLabel">3</span></label>
+      <input id="k" type="range" min="1" max="31" step="2" value="3" />
+    </div>
+    <div class="ctrl">
+      <label>Cluster spread (σ): <span id="sigmaLabel">0.10</span></label>
+      <input id="sigma" type="range" min="0.04" max="0.22" step="0.02" value="0.10" />
+    </div>
+    <div class="ctrl">
+      <label>Label noise (flip %): <span id="flipLabel">5%</span></label>
+      <input id="flip" type="range" min="0" max="25" step="5" value="5" />
+    </div>
+    <div class="ctrl">
+      <label>Total sample size: <span id="nLabel">240</span></label>
+      <input id="n" type="range" min="80" max="800" step="40" value="240" />
+    </div>
+    <div class="ctrl">
+      <label>Train / Test split (% train): <span id="splitLabel">70%</span></label>
+      <input id="split" type="range" min="50" max="90" step="5" value="70" />
+    </div>
+    <div class="ctrl">
+      <button id="regen" class="btn">Regenerate data</button>
+      <button id="reset" class="btn">Reset</button>
+    </div>
+    <div class="legend ctrl">
+      <span><span class="swatch sw-blue"></span> Train points</span>
+      <span><span class="swatch sw-orange"></span> Test points</span>
+      <span><span class="swatch sw-surface"></span> Decision surface</span>
+    </div>
+  </div>
 
-    // ====== Canvas and coordinate system ======
-    const canvas = document.getElementById('plot');
-    const ctx = canvas.getContext('2d');
+  <canvas id="cv" width="980" height="520" aria-label="kNN overfitting/underfitting visualization"></canvas>
 
-    // Logical axes bounds
-    const xMin = -1, xMax = 8;
-    const yMin = -1, yMax = 8;
-    const W = canvas.width, H = canvas.height;
+  <div class="metrics">
+    <div class="card">
+      <div class="k">Train accuracy</div>
+      <div class="v" id="accTrain">—</div>
+    </div>
+    <div class="card">
+      <div class="k">Test accuracy</div>
+      <div class="v" id="accTest">—</div>
+    </div>
+    <div class="card">
+      <div class="k">Generalization gap (Test − Train)</div>
+      <div class="v" id="gap">—</div>
+    </div>
+    <div class="card">
+      <div class="k">Diagnosis</div>
+      <div class="v flag" id="diagnosis">—</div>
+    </div>
+  </div>
 
-    function toPx(x, y) {
-      const px = (x - xMin) * W / (xMax - xMin);
-      const py = H - (y - yMin) * H / (yMax - yMin);
-      return [px, py];
+  <div class="tips">
+    <strong>How to induce <span style="color:#f59e0b">overfitting</span>:</strong>
+    <ul>
+      <li>Set <strong>k = 1–3</strong>, increase <strong>label noise</strong> or <strong>σ</strong>. The boundary becomes very jagged, Train accuracy high, Test accuracy lower.</li>
+    </ul>
+    <strong>How to induce <span style="color:#60a5fa">underfitting</span>:</strong>
+    <ul>
+      <li>Set <strong>k large</strong> (e.g., 21–31). The boundary oversmooths; both Train and Test accuracy drop similarly.</li>
+    </ul>
+    <p class="note">We compute Train accuracy with leave‑one‑out (exclude the point from its neighbors) to avoid the trivial 100% at k=1.</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ------------------ DOM ------------------
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+
+  const kInput    = document.getElementById('k');
+  const sigmaInput= document.getElementById('sigma');
+  const flipInput = document.getElementById('flip');
+  const nInput    = document.getElementById('n');
+  const splitInput= document.getElementById('split');
+
+  const kLabel     = document.getElementById('kLabel');
+  const sigmaLabel = document.getElementById('sigmaLabel');
+  const flipLabel  = document.getElementById('flipLabel');
+  const nLabel     = document.getElementById('nLabel');
+  const splitLabel = document.getElementById('splitLabel');
+
+  const accTrainEl = document.getElementById('accTrain');
+  const accTestEl  = document.getElementById('accTest');
+  const gapEl      = document.getElementById('gap');
+  const diagnosisEl= document.getElementById('diagnosis');
+
+  const regenBtn = document.getElementById('regen');
+  const resetBtn = document.getElementById('reset');
+
+  // ------------------ Helpers ------------------
+  function randUniform(a,b){ return a + Math.random()*(b-a); }
+  function randn(){ // Box-Muller
+    let u=0,v=0; while(u===0) u=Math.random(); while(v===0) v=Math.random();
+    return Math.sqrt(-2.0*Math.log(u))*Math.cos(2.0*Math.PI*v);
+  }
+
+  // Two Gaussian blobs (populations)
+  function makeBlobs(N, sigma, flipPct){
+    const pts = [];
+    // centers in normalized [0,1]^2
+    const A = {mx:0.32, my:0.35};
+    const B = {mx:0.72, my:0.65};
+    const s = sigma;
+
+    for(let i=0;i<N;i++){
+      const cls = (i < N/2) ? 0 : 1; // half A, half B
+      const m = (cls===0)?A:B;
+      // correlated blob: use rotation for variety
+      const r = randUniform(0, Math.PI);
+      const rx = Math.cos(r)*randn()*s - Math.sin(r)*randn()*s*0.6;
+      const ry = Math.sin(r)*randn()*s + Math.cos(r)*randn()*s*0.6;
+      let x = m.mx + rx, y = m.my + ry;
+      // clip to [0,1]
+      x = Math.max(0, Math.min(1, x));
+      y = Math.max(0, Math.min(1, y));
+      let label = cls;
+      // flip a percentage of labels to inject label noise
+      if(Math.random() < flipPct/100) label = 1 - label;
+      pts.push({x,y,label});
     }
-
-    // ====== UI elements ======
-    const w1 = document.getElementById('w1');
-    const w2 = document.getElementById('w2');
-    const b  = document.getElementById('b');
-    const w1n = document.getElementById('w1n');
-    const w2n = document.getElementById('w2n');
-    const bn  = document.getElementById('bn');
-    const eq = document.getElementById('eq');
-    const metrics = document.getElementById('metrics');
-
-    function syncFromSliders() {
-      w1n.value = w1.value; w2n.value = w2.value; bn.value = b.value;
-      redraw();
+    // shuffle
+    for(let i=pts.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      const tmp = pts[i]; pts[i]=pts[j]; pts[j]=tmp;
     }
-    function syncFromNumbers() {
-      w1.value = w1n.value; w2.value = w2n.value; b.value = bn.value;
-      redraw();
+    return pts;
+  }
+
+  // Train/Test split
+  function splitTrainTest(pts, pctTrain){
+    const nTrain = Math.floor(pts.length * pctTrain/100);
+    const train = pts.slice(0, nTrain);
+    const test  = pts.slice(nTrain);
+    return {train, test};
+  }
+
+  // Distance
+  function dist2(ax,ay,bx,by){ const dx = ax-bx, dy = ay-by; return dx*dx+dy*dy; }
+
+  // kNN prediction: return probability of class 1
+  function knnProb(train, k, x, y, excludeIndex=-1){
+    // Compute all distances
+    const arr = [];
+    for(let i=0;i<train.length;i++){
+      if(i===excludeIndex) continue; // for LOO
+      const p = train[i];
+      arr.push({d: dist2(x,y,p.x,p.y), label: p.label});
     }
-    w1.addEventListener('input', syncFromSliders);
-    w2.addEventListener('input', syncFromSliders);
-    b .addEventListener('input', syncFromSliders);
-    w1n.addEventListener('input', syncFromNumbers);
-    w2n.addEventListener('input', syncFromNumbers);
-    bn .addEventListener('input', syncFromNumbers);
+    // Sort by distance
+    arr.sort((a,b)=>a.d-b.d);
+    // Count top-k
+    let ones=0;
+    const kk = Math.min(k, arr.length);
+    for(let i=0;i<kk;i++){ if(arr[i].label===1) ones++; }
+    return ones/kk;
+  }
 
-    document.getElementById('reset').addEventListener('click', () => {
-      w1.value = 0.3; w2.value = 0.3; b.value = 0.0; syncFromSliders();
-    });
-    document.getElementById('perfect').addEventListener('click', () => {
-      w1.value = 1.0; w2.value = 1.0; b.value = -6.0; syncFromSliders();
-    });
+  // Accuracy: Train (LOO) and Test
+  function accuracy(train, test, k){
+    let correctTrain=0;
+    for(let i=0;i<train.length;i++){
+      const p = train[i];
+      const prob = knnProb(train, k, p.x, p.y, i);
+      const pred = (prob>=0.5)?1:0;
+      if(pred===p.label) correctTrain++;
+    }
+    let correctTest=0;
+    for(const p of test){
+      const prob = knnProb(train, k, p.x, p.y, -1);
+      const pred = (prob>=0.5)?1:0;
+      if(pred===p.label) correctTest++;
+    }
+    return {accTrain: correctTrain/train.length, accTest: correctTest/test.length};
+  }
 
-    // ====== Drawing helpers ======
-    function drawAxes() {
-      // Background
-      ctx.fillStyle = "#0b1220";
-      ctx.fillRect(0, 0, W, H);
+  // ------------------ Plotting ------------------
+  const pad = {left:58, right:20, top:24, bottom:44};
+  function xToPx(x){ return pad.left + x * (cv.width - pad.left - pad.right); }
+  function yToPx(y){ 
+    const h = cv.height - pad.top - pad.bottom;
+    return pad.top + (1 - y) * h; // invert y for screen
+  }
 
-      // Grid lines
-      ctx.strokeStyle = "#334155";
-      ctx.lineWidth = 1;
-      for (let x = Math.ceil(xMin); x <= xMax; x++) {
-        const [px] = toPx(x, 0);
-        ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
-      }
-      for (let y = Math.ceil(yMin); y <= yMax; y++) {
-        const [, py] = toPx(0, y);
-        ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
-      }
+  function drawAxes(){
+    ctx.clearRect(0,0,cv.width,cv.height);
+    // background
+    ctx.fillStyle = '#0b1220'; ctx.fillRect(0,0,cv.width,cv.height);
+    // grid
+    ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 1;
+    for(let i=0;i<=10;i++){
+      const x = pad.left + i*(cv.width-pad.left-pad.right)/10;
+      ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, cv.height-pad.bottom); ctx.stroke();
+    }
+    for(let i=0;i<=10;i++){
+      const y = pad.top + i*(cv.height-pad.top-pad.bottom)/10;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(cv.width-pad.right, y); ctx.stroke();
+    }
+    // axes baseline
+    ctx.strokeStyle = '#344156'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(pad.left, cv.height-pad.bottom); ctx.lineTo(cv.width-pad.right, cv.height-pad.bottom); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, cv.height-pad.bottom); ctx.stroke();
 
-      // Zero axes
-      ctx.strokeStyle = "#64748b";
-      ctx.lineWidth = 2;
-      const [x0, y0] = toPx(0, 0);
-      ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0, H); ctx.stroke();
+    // ticks
+    ctx.fillStyle = '#94a3b8'; ctx.font = '12px system-ui';
+    for(let i=0;i<=10;i++){
+      const xv = (i/10).toFixed(1);
+      const x = pad.left + i*(cv.width-pad.left-pad.right)/10;
+      ctx.fillText(xv, x-8, cv.height-pad.bottom+20);
+      const y = pad.top + i*(cv.height-pad.top-pad.bottom)/10;
+      const yv = (1 - i/10).toFixed(1);
+      ctx.fillText(yv, 22, y+4);
+    }
+    ctx.fillText('x', cv.width-pad.right-10, cv.height-pad.bottom+30);
+    ctx.fillText('y', 20, pad.top-6);
+  }
 
-      // Tick labels
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = "12px ui-monospace, monospace";
-      for (let x = 0; x <= xMax; x += 1) {
-        const [px, py] = toPx(x, 0);
-        ctx.fillText(x.toString(), px + 2, py - 4);
-      }
-      for (let y = 0; y <= yMax; y += 1) {
-        const [px, py] = toPx(0, y);
-        ctx.fillText(y.toString(), px + 4, py - 2);
+  // Decision surface by sampling a grid and painting cells
+  function drawSurface(train, k){
+    const W = cv.width - pad.left - pad.right;
+    const H = cv.height - pad.top - pad.bottom;
+    const stepsX = 140; // resolution
+    const stepsY = 90;
+    const cellW = W/stepsX, cellH = H/stepsY;
+
+    for(let ix=0; ix<stepsX; ix++){
+      const cx = pad.left + ix*cellW;
+      const x = (cx - pad.left)/W; // back to [0,1]
+      for(let iy=0; iy<stepsY; iy++){
+        const cy = pad.top + iy*cellH;
+        const y = 1 - ((cy - pad.top)/H); // back to [0,1]
+
+        const prob1 = knnProb(train, k, x, y, -1);
+        // blend color: blue for class 0, orange for class 1
+        const t = prob1;
+        const r = Math.round((1-t)*96 + t*251);  // blue->orange
+        const g = Math.round((1-t)*165 + t*146);
+        const b = Math.round((1-t)*250 + t*60);
+        ctx.fillStyle = `rgba(${r},${g},${b},0.22)`;
+        ctx.fillRect(cx, cy, cellW+1, cellH+1);
       }
     }
+  }
 
-    function drawPoints(w1v, w2v, bv) {
-      let correct = 0;
-      for (const p of points) {
-        const score = w1v * p.x + w2v * p.y + bv;
-        const pred = score >= 0 ? +1 : -1;
-        const mis = pred !== p.label;
-
-        const [px, py] = toPx(p.x, p.y);
-        ctx.beginPath();
-        ctx.arc(px, py, 5.5, 0, Math.PI * 2);
-        ctx.fillStyle = p.label === +1 ? "#3b82f6" : "#f59e0b";
-        ctx.fill();
-
-        if (mis) {
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = "#ef4444"; // red outline for misclassified
-          ctx.stroke();
-        } else {
-          correct++;
-        }
-      }
-      const acc = (100 * correct / points.length).toFixed(1);
-      metrics.textContent = `Accuracy: ${acc}% (${correct}/${points.length})`;
-    }
-
-    function drawBoundary(w1v, w2v, bv) {
-      ctx.strokeStyle = "#38bdf8";
-      ctx.lineWidth = 2.5;
+  function drawPoints(train, test){
+    // Train (blue)
+    ctx.fillStyle = '#60a5fa';
+    for(const p of train){
       ctx.beginPath();
-
-      if (Math.abs(w2v) > 1e-8) {
-        // y = (-w1/w2) x - b/w2
-        const yAtXmin = (-w1v / w2v) * xMin - (bv / w2v);
-        const yAtXmax = (-w1v / w2v) * xMax - (bv / w2v);
-        const [p1x, p1y] = toPx(xMin, yAtXmin);
-        const [p2x, p2y] = toPx(xMax, yAtXmax);
-        ctx.moveTo(p1x, p1y);
-        ctx.lineTo(p2x, p2y);
-      } else if (Math.abs(w1v) > 1e-8) {
-        // Vertical boundary: x = -b / w1
-        const xVert = -bv / w1v;
-        const [p1x, p1y] = toPx(xVert, yMin);
-        const [p2x, p2y] = toPx(xVert, yMax);
-        ctx.moveTo(p1x, p1y);
-        ctx.lineTo(p2x, p2y);
-      }
-      ctx.stroke();
-
-      // Update equation text
-      const sgn = (n) => (n >= 0 ? "" : "−");
-      const fmt = (n) => Math.abs(n).toFixed(2);
-      const termX = `${sgn(w1v)}${fmt(w1v)}·x`;
-      const termY = ` ${w2v >= 0 ? "+ " : "− "}${fmt(w2v)}·y`;
-      const termB = ` ${bv >= 0 ? "+ " : "− "}${fmt(bv)}`;
-      eq.textContent = `w₁·x + w₂·y + b = 0  ⇒  ${termX}${termY}${termB} = 0`;
+      ctx.arc(xToPx(p.x), yToPx(p.y), 3.6, 0, 2*Math.PI);
+      ctx.fill();
     }
-
-    function redraw() {
-      const w1v = Number(w1.value);
-      const w2v = Number(w2.value);
-      const bv  = Number(b.value);
-
-      drawAxes();
-      drawBoundary(w1v, w2v, bv);
-      drawPoints(w1v, w2v, bv);
+    // Test (orange)
+    ctx.fillStyle = '#fb923c';
+    for(const p of test){
+      ctx.beginPath();
+      ctx.arc(xToPx(p.x), yToPx(p.y), 3.6, 0, 2*Math.PI);
+      ctx.fill();
     }
+  }
 
-    // Initial render
-    redraw();
-  </script>
+  // ------------------ Diagnosis ------------------
+  function diagnose(accTrain, accTest, k, nTrain){
+    const gap = accTest - accTrain; // should be <= 0 if overfit (test < train)
+    let verdict = 'Model OK';
+    const gapAbs = Math.abs(gap);
+
+    // Underfitting: both low and gap small
+    if(accTrain < 0.80 && accTest < 0.80 && gapAbs < 0.08 && k >= Math.min(15, nTrain)){
+      verdict = 'Underfitting likely (k too large; boundary oversmoothed)';
+    }
+    // Overfitting: train >> test and k very small
+    if(accTrain >= 0.95 && (accTrain - accTest) >= 0.15 && k <= 3){
+      verdict = 'Overfitting likely (k too small; boundary too jagged)';
+    }
+    return {gap, verdict};
+  }
+
+  // ------------------ State & Update ------------------
+  let state = {
+    k: Number(kInput.value),
+    sigma: Number(sigmaInput.value),
+    flip: Number(flipInput.value),
+    N: Number(nInput.value),
+    split: Number(splitInput.value),
+    pts: [],
+    train: [],
+    test: []
+  };
+
+  function refreshLabels(){
+    kLabel.textContent = state.k.toString();
+    sigmaLabel.textContent = state.sigma.toFixed(2);
+    flipLabel.textContent = `${state.flip}%`;
+    nLabel.textContent = state.N.toString();
+    splitLabel.textContent = `${state.split}%`;
+  }
+
+  function regenerate(){
+    state.pts = makeBlobs(state.N, state.sigma, state.flip);
+    const sp = splitTrainTest(state.pts, state.split);
+    state.train = sp.train;
+    state.test  = sp.test;
+    drawAll();
+  }
+
+  function drawAll(){
+    drawAxes();
+    drawSurface(state.train, state.k);
+    drawPoints(state.train, state.test);
+    const acc = accuracy(state.train, state.test, state.k);
+    const diag = diagnose(acc.accTrain, acc.accTest, state.k, state.train.length);
+
+    accTrainEl.textContent = `${(acc.accTrain*100).toFixed(1)}%`;
+    accTestEl.textContent  = `${(acc.accTest*100).toFixed(1)}%`;
+    gapEl.textContent      = `${(diag.gap*100).toFixed(1)}%`;
+    diagnosisEl.textContent= diag.verdict;
+  }
+
+  // ------------------ Events ------------------
+  kInput.addEventListener('input', ()=>{ state.k = Number(kInput.value); refreshLabels(); drawAll(); });
+  sigmaInput.addEventListener('input', ()=>{ state.sigma = Number(sigmaInput.value); refreshLabels(); regenerate(); });
+  flipInput.addEventListener('input', ()=>{ state.flip = Number(flipInput.value); refreshLabels(); regenerate(); });
+  nInput.addEventListener('input', ()=>{ state.N = Number(nInput.value); refreshLabels(); regenerate(); });
+  splitInput.addEventListener('input', ()=>{ state.split = Number(splitInput.value); refreshLabels(); regenerate(); });
+
+  regenBtn.addEventListener('click', regenerate);
+  resetBtn.addEventListener('click', ()=>{
+    kInput.value = 3; sigmaInput.value = 0.10; flipInput.value = 5; nInput.value = 240; splitInput.value = 70;
+    state.k = 3; state.sigma = 0.10; state.flip = 5; state.N = 240; state.split = 70;
+    refreshLabels(); regenerate();
+  });
+
+  // ------------------ Init ------------------
+  refreshLabels();
+  regenerate();
+})();
+</script>
 </body>
 </html>
