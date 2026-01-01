@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>ML Demos — Interactive Teaching Hub</title>
+  <title>ML Demos — Landing</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root {
@@ -25,15 +25,13 @@
     .card a:hover { filter:brightness(1.1); }
     footer { margin-top:18px; padding:14px 20px; color:var(--muted); border-top:1px solid var(--border); text-align:center; }
     .mono { font-family:ui-monospace,Menlo,Consolas,monospace; }
-    @media (max-width: 900px) {
-      .grid { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <header>
     <h1>Interactive ML Demos</h1>
-    <p class="mono">Hosted via GitHub Pages — explore, adjust weights/bias, train, and visualize decision boundaries.</p>
+    <p class="mono">Hosted via GitHub Pages — open a demo below.</p>
   </header>
 
   <main>
@@ -41,15 +39,15 @@
       <!-- Demo: Overfit -->
       <article class="card">
         <h2>Overfitting Demo</h2>
-        <p>Interactive experiment showing train vs. test behavior, model complexity, and regularization effects.</p>
-        overfit/Open overfit demo</a>
+        <p>Explore train vs. test behavior, model complexity, and regularization effects.</p>
+        overfit/Open <span class="mono">overfit/</span></a>
       </article>
 
-      <!-- Demo: Weights & Bias (Hyperplane) -->
+      <!-- Demo: Weights & Bias -->
       <article class="card">
         <h2>Weights & Bias — Decision Hyperplane</h2>
-        <p>Adjust w₁, w₂, and b; train with the perceptron rule; compare hard vs. logistic boundaries and confidence shading.</p>
-        weights_bias/Open weights_bias demo</a>
+        <p>Adjust w₁, w₂, and b; train with the perceptron rule; compare hard vs. logistic boundaries.</p>
+        weights_bias/Open <span class="mono">weights_bias/</span></a>
       </article>
     </section>
   </main>
@@ -58,7 +56,6 @@
     © <span id="yr"></span> ML Demos · <span class="mono">https://havi-muro.github.io/ML_demos/</span>
   </footer>
 
-  <script>
-    // Fill current year in footer
-    document.getElementById('yr').textContent = new Date().getFullYear();
-  </script>
+  <script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
+</body>
+</html>
