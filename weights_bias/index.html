@@ -1,1 +1,246 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Interactive 2D Decision Hyperplane (Perceptron/MLP)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; background: #0e1320; color: #e6edf3; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    .container { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
+    .panel { background: #101826; border: 1px solid #1f2937; border-radius: 10px; padding: 12px; }
+    label { display: block; margin: 10px 0 6px; }
+    input[type="range"] { width: 100%; }
+    input[type="number"] { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid #374151; background: #0b1220; color: #e6edf3; }
+    .row { display: grid; grid-template-columns: 1fr 90px; gap: 8px; align-items: center; }
+    .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    button { padding: 8px 12px; border-radius: 6px; border: 1px solid #1f2937; background: #0b1220; color: #e6edf3; cursor: pointer; }
+    button:hover { filter: brightness(1.1); }
+    .legend { margin-top: 8px; font-size: 14px; }
+    .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; margin-right: 6px; }
+    canvas { border: 1px solid #1f2937; border-radius: 10px; background: #0b1220; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Interactive Decision Hyperplane (Perceptron/MLP)</h1>
+  <p class="mono">Boundary: <span id="eq">w₁·x + w₂·y + b = 0</span> &nbsp;|&nbsp; <span id="metrics">Accuracy: —</span></p>
+
+  <div class="container">
+    <!-- Controls -->
+    <section class="panel">
+      <label>Weight w₁</label>
+      <div class="row">
+        <input id="w1" type="range" min="-10" max="10" step="0.1" value="0.3">
+        <input id="w1n" type="number" step="0.1" value="0.3">
+      </div>
+
+      <label>Weight w₂</label>
+      <div class="row">
+        <input id="w2" type="range" min="-10" max="10" step="0.1" value="0.3">
+        <input id="w2n" type="number" step="0.1" value="0.3">
+      </div>
+
+      <label>Bias b</label>
+      <div class="row">
+        <input id="b" type="range" min="-12" max="12" step="0.1" value="0">
+        <input id="bn" type="number" step="0.1" value="0">
+      </div>
+
+      <div class="btns">
+        <button id="reset">Reset (poor boundary)</button>
+        <button id="perfect">Perfect separator</button>
+      </div>
+
+      <div class="legend">
+        <span><span class="sw" style="background:#3b82f6"></span>Class +1 (blue)</span>&nbsp;&nbsp;
+        <span><span class="sw" style="background:#f59e0b"></span>Class −1 (orange)</span>&nbsp;&nbsp;
+        <span><span class="sw" style="background:#ef4444"></span>Red outline = misclassified</span>
+      </div>
+    </section>
+
+    <!-- Plot -->
+    <section class="panel">
+      <!-- Use explicit width/height attributes to avoid CSS scaling surprises -->
+      <canvas id="plot" width="900" height="540"></canvas>
+    </section>
+  </div>
+
+  <script>
+    // ====== Deterministic dataset: two fixed, linearly separable clusters ======
+    // Cluster A (+1) centered near (5,5); Cluster B (-1) centered near (1,1)
+    const points = [];
+    (function buildDataset() {
+      // Class +1 (blue)
+      for (let i = 0; i < 20; i++) {
+        const x = 4.6 + (i % 5) * 0.35 + Math.sin(i * 0.7) * 0.15;
+        const y = 4.7 + Math.floor(i / 5) * 0.35 + Math.cos(i * 0.8) * 0.15;
+        points.push({ x, y, label: +1 });
+      }
+      // Class -1 (orange)
+      for (let i = 0; i < 20; i++) {
+        const x = 0.9 + (i % 5) * 0.30 + Math.sin(i * 1.1) * 0.12;
+        const y = 0.9 + Math.floor(i / 5) * 0.30 + Math.cos(i * 1.0) * 0.12;
+        points.push({ x, y, label: -1 });
+      }
+    })();
+
+    // ====== Canvas and coordinate system ======
+    const canvas = document.getElementById('plot');
+    const ctx = canvas.getContext('2d');
+
+    // Logical axes bounds
+    const xMin = -1, xMax = 8;
+    const yMin = -1, yMax = 8;
+    const W = canvas.width, H = canvas.height;
+
+    function toPx(x, y) {
+      const px = (x - xMin) * W / (xMax - xMin);
+      const py = H - (y - yMin) * H / (yMax - yMin);
+      return [px, py];
+    }
+
+    // ====== UI elements ======
+    const w1 = document.getElementById('w1');
+    const w2 = document.getElementById('w2');
+    const b  = document.getElementById('b');
+    const w1n = document.getElementById('w1n');
+    const w2n = document.getElementById('w2n');
+    const bn  = document.getElementById('bn');
+    const eq = document.getElementById('eq');
+    const metrics = document.getElementById('metrics');
+
+    function syncFromSliders() {
+      w1n.value = w1.value; w2n.value = w2.value; bn.value = b.value;
+      redraw();
+    }
+    function syncFromNumbers() {
+      w1.value = w1n.value; w2.value = w2n.value; b.value = bn.value;
+      redraw();
+    }
+    w1.addEventListener('input', syncFromSliders);
+    w2.addEventListener('input', syncFromSliders);
+    b .addEventListener('input', syncFromSliders);
+    w1n.addEventListener('input', syncFromNumbers);
+    w2n.addEventListener('input', syncFromNumbers);
+    bn .addEventListener('input', syncFromNumbers);
+
+    document.getElementById('reset').addEventListener('click', () => {
+      w1.value = 0.3; w2.value = 0.3; b.value = 0.0; syncFromSliders();
+    });
+    document.getElementById('perfect').addEventListener('click', () => {
+      w1.value = 1.0; w2.value = 1.0; b.value = -6.0; syncFromSliders();
+    });
+
+    // ====== Drawing helpers ======
+    function drawAxes() {
+      // Background
+      ctx.fillStyle = "#0b1220";
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid lines
+      ctx.strokeStyle = "#334155";
+      ctx.lineWidth = 1;
+      for (let x = Math.ceil(xMin); x <= xMax; x++) {
+        const [px] = toPx(x, 0);
+        ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
+      }
+      for (let y = Math.ceil(yMin); y <= yMax; y++) {
+        const [, py] = toPx(0, y);
+        ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+      }
+
+      // Zero axes
+      ctx.strokeStyle = "#64748b";
+      ctx.lineWidth = 2;
+      const [x0, y0] = toPx(0, 0);
+      ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0, H); ctx.stroke();
+
+      // Tick labels
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "12px ui-monospace, monospace";
+      for (let x = 0; x <= xMax; x += 1) {
+        const [px, py] = toPx(x, 0);
+        ctx.fillText(x.toString(), px + 2, py - 4);
+      }
+      for (let y = 0; y <= yMax; y += 1) {
+        const [px, py] = toPx(0, y);
+        ctx.fillText(y.toString(), px + 4, py - 2);
+      }
+    }
+
+    function drawPoints(w1v, w2v, bv) {
+      let correct = 0;
+      for (const p of points) {
+        const score = w1v * p.x + w2v * p.y + bv;
+        const pred = score >= 0 ? +1 : -1;
+        const mis = pred !== p.label;
+
+        const [px, py] = toPx(p.x, p.y);
+        ctx.beginPath();
+        ctx.arc(px, py, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = p.label === +1 ? "#3b82f6" : "#f59e0b";
+        ctx.fill();
+
+        if (mis) {
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "#ef4444"; // red outline for misclassified
+          ctx.stroke();
+        } else {
+          correct++;
+        }
+      }
+      const acc = (100 * correct / points.length).toFixed(1);
+      metrics.textContent = `Accuracy: ${acc}% (${correct}/${points.length})`;
+    }
+
+    function drawBoundary(w1v, w2v, bv) {
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+
+      if (Math.abs(w2v) > 1e-8) {
+        // y = (-w1/w2) x - b/w2
+        const yAtXmin = (-w1v / w2v) * xMin - (bv / w2v);
+        const yAtXmax = (-w1v / w2v) * xMax - (bv / w2v);
+        const [p1x, p1y] = toPx(xMin, yAtXmin);
+        const [p2x, p2y] = toPx(xMax, yAtXmax);
+        ctx.moveTo(p1x, p1y);
+        ctx.lineTo(p2x, p2y);
+      } else if (Math.abs(w1v) > 1e-8) {
+        // Vertical boundary: x = -b / w1
+        const xVert = -bv / w1v;
+        const [p1x, p1y] = toPx(xVert, yMin);
+        const [p2x, p2y] = toPx(xVert, yMax);
+        ctx.moveTo(p1x, p1y);
+        ctx.lineTo(p2x, p2y);
+      }
+      ctx.stroke();
+
+      // Update equation text
+      const sgn = (n) => (n >= 0 ? "" : "−");
+      const fmt = (n) => Math.abs(n).toFixed(2);
+      const termX = `${sgn(w1v)}${fmt(w1v)}·x`;
+      const termY = ` ${w2v >= 0 ? "+ " : "− "}${fmt(w2v)}·y`;
+      const termB = ` ${bv >= 0 ? "+ " : "− "}${fmt(bv)}`;
+      eq.textContent = `w₁·x + w₂·y + b = 0  ⇒  ${termX}${termY}${termB} = 0`;
+    }
+
+    function redraw() {
+      const w1v = Number(w1.value);
+      const w2v = Number(w2.value);
+      const bv  = Number(b.value);
+
+      drawAxes();
+      drawBoundary(w1v, w2v, bv);
+      drawPoints(w1v, w2v, bv);
+    }
+
+    // Initial render
+    redraw();
+  </script>
+</body>
+</html>
+
