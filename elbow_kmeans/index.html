@@ -1,0 +1,396 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Elbow Method Demo (k-means + WCSS)</title>
+<style>
+  :root {
+    --bg: #0b1223; --panel: #111827; --border: #1f2937;
+    --text: #e5e7eb; --muted: #9ca3af; --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  header { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  h1 { margin: 0 0 6px; font-size: 1.25rem; }
+  .note { color: var(--muted); font-size: 0.95rem; }
+  .wrap { display:grid; grid-template-columns: 360px 1fr; gap:16px; padding:16px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:12px; }
+  .panel h2 { margin:0 0 8px; font-size:1.05rem; }
+  label { display:block; margin:10px 0 6px; }
+  input[type="range"] { width:100%; }
+  .buttons { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:8px; margin-top:8px; }
+  button { padding:8px 10px; border-radius:8px; border:1px solid #374151; background:#1f2937; color:var(--text); cursor:pointer; }
+  button:hover { border-color: var(--accent); }
+  #status { margin-top:8px; color:var(--muted); min-height:1.4em; }
+  .metric { margin-top:8px; font-size:0.95rem; color: var(--muted); }
+  .charts { display:grid; grid-template-columns: 1fr; gap:12px; }
+  @media (min-width: 1100px) { .charts { grid-template-columns: 1fr 1fr; } }
+  canvas {
+    background: var(--bg);
+    border:1px solid var(--border);
+    border-radius:10px;
+    display:block;
+    /* FIXED pixel buffers: match attributes below for no scaling surprises */
+    width: 900px;
+    height: 420px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Elbow Method for Choosing K (k-means + WCSS)</h1>
+  <div class="note">
+    The Elbow method plots <strong>WCSS</strong> (within-cluster sum of squares) for K=1..K<sub>max</sub>. The “elbow”
+    suggests a K where adding clusters yields diminishing returns.
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- Controls panel -->
+  <section class="panel">
+    <h2>Controls</h2>
+
+    <div id="status">Loading…</div>
+
+    <label>Clusters (K): <span id="kLabel">3</span></label>
+    <input id="kSlider" type="range" min="1" max="10" step="1" value="3" />
+
+    <label>Elbow range K<sub>max</sub>: <span id="kmaxLabel">8</span></label>
+    <input id="kmaxSlider" type="range" min="3" max="12" step="1" value="8" />
+
+    <div class="buttons">
+      <button id="clusterBtn">Cluster (selected K)</button>
+      <button id="elbowBtn">Compute Elbow (K=1..Kmax)</button>
+      <button id="randomBtn">Random sample</button>
+      <button id="clearBtn">Clear points</button>
+      <button id="testBtn">Test draw dot</button>
+    </div>
+
+    <div class="metric" id="metricText"></div>
+  </section>
+
+  <!-- Charts panel -->
+  <section class="panel">
+    <h2>Charts</h2>
+    <div class="charts">
+      <div>
+        <h3 style="margin:0 0 8px;">Scatter (click to add points)</h3>
+        <!-- Fixed-size pixel buffers (attributes define internal resolution) -->
+        <canvas id="scatter" width="900" height="420"></canvas>
+      </div>
+      <div>
+        <h3 style="margin:0 0 8px;">Elbow (WCSS vs K)</h3>
+        <canvas id="elbow" width="900" height="420"></canvas>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- Error monitor ---------- */
+window.addEventListener("error", (e) => {
+  const status = document.getElementById("status");
+  if (status) status.textContent = "Runtime error: " + (e.message || e.error || "unknown");
+  console.error("Runtime error:", e.message, e.error);
+});
+
+/* ---------- Boot ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  const statusEl    = document.getElementById("status");
+  const kSlider     = document.getElementById("kSlider");
+  const kLabel      = document.getElementById("kLabel");
+  const kmaxSlider  = document.getElementById("kmaxSlider");
+  const kmaxLabel   = document.getElementById("kmaxLabel");
+  const clusterBtn  = document.getElementById("clusterBtn");
+  const elbowBtn    = document.getElementById("elbowBtn");
+  const randomBtn   = document.getElementById("randomBtn");
+  const clearBtn    = document.getElementById("clearBtn");
+  const testBtn     = document.getElementById("testBtn");
+  const metricText  = document.getElementById("metricText");
+
+  const scatter     = document.getElementById("scatter");
+  const elbow       = document.getElementById("elbow");
+
+  const ctxScatter  = scatter.getContext("2d");
+  const ctxElbow    = elbow.getContext("2d");
+
+  if (!ctxScatter || !ctxElbow) {
+    statusEl.textContent = "Error: 2D canvas context not available.";
+    return;
+  }
+
+  statusEl.textContent = "JS loaded ✔️ — click on the scatter to add points, or press Random sample.";
+
+  /* ---------- Data ---------- */
+  let points = [];        // [{x,y}] in canvas pixel space
+  let assignments = [];   // cluster index per point
+  let centroids = [];     // [{x,y}]
+  let wcssByK = [];       // [{K, WCSS}]
+  const colors = ["#60a5fa","#fbbf24","#34d399","#f472b6","#a78bfa","#f87171","#10b981","#eab308","#22d3ee","#fb7185"];
+
+  /* ---------- Utils ---------- */
+  const W = (c)=>c.width;
+  const H = (c)=>c.height;
+  const dist = (a,b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  function arraysEqual(a,b){
+    if (a.length !== b.length) return false;
+    for (let i=0;i<a.length;i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  function kmeans(data, K, maxIter = 60) {
+    if (data.length < K) throw new Error(`Need at least ${K} points.`);
+    // k-means++ init
+    let cents = [ data[Math.floor(Math.random() * data.length)] ];
+    while (cents.length < K) {
+      const d2 = data.map(p => Math.min(...cents.map(c => (p.x-c.x)**2 + (p.y-c.y)**2 )));
+      let sum = d2.reduce((a,b)=>a+b,0), r = Math.random()*sum, i = 0;
+      for (; i<d2.length && r>0; i++) r -= d2[i];
+      cents.push(data[Math.min(i, d2.length-1)]);
+    }
+    let assign = new Array(data.length).fill(0);
+    for (let it=0; it<maxIter; it++) {
+      // assign
+      const newAssign = data.map(p => {
+        let best=0, bestD=Infinity;
+        for (let k=0;k<K;k++){ const d = dist(p, cents[k]); if (d<bestD){bestD=d; best=k;} }
+        return best;
+      });
+      if (arraysEqual(newAssign, assign) && it>0) { assign=newAssign; break; }
+      assign = newAssign;
+      // update
+      let sums = Array(K).fill(0).map(()=>({x:0,y:0,c:0}));
+      data.forEach((p,i)=>{ const k=assign[i]; sums[k].x+=p.x; sums[k].y+=p.y; sums[k].c++; });
+      for (let k=0;k<K;k++){
+        cents[k] = sums[k].c ? {x:sums[k].x/sums[k].c, y:sums[k].y/sums[k].c}
+                             : data[Math.floor(Math.random()*data.length)];
+      }
+    }
+    return {assign, cents};
+  }
+
+  function computeWCSS(data, assign, cents) {
+    let total = 0;
+    for (let i=0;i<data.length;i++){
+      const k = assign[i];
+      const d = dist(data[i], cents[k]);
+      total += d*d;
+    }
+    return total;
+  }
+
+  // Elbow detection via distance-to-line heuristic
+  function detectElbow(wcssArr) {
+    if (!wcssArr.length) return null;
+    const Kmin = wcssArr[0].K;
+    const Kmax = wcssArr[wcssArr.length - 1].K;
+    const y1   = wcssArr[0].WCSS;
+    const yN   = wcssArr[wcssArr.length - 1].WCSS;
+    const A = {x:Kmin, y:y1}, B = {x:Kmax, y:yN};
+    const vx = B.x - A.x, vy = B.y - A.y;
+    const vLen = Math.hypot(vx, vy) || 1;
+    let best = {K:Kmin, dist: -Infinity, idx:0};
+    for (let i=0;i<wcssArr.length;i++){
+      const P = {x:wcssArr[i].K, y:wcssArr[i].WCSS};
+      const cross = Math.abs((P.x - A.x) * vy - (P.y - A.y) * vx);
+      const d = cross / vLen;
+      if (d > best.dist) best = {K:P.x, dist:d, idx:i};
+    }
+    return best; // {K, dist, idx}
+  }
+
+  /* ---------- Drawing ---------- */
+  function clearCanvas(ctx, canvas) {
+    ctx.fillStyle = "#0b1223";
+    ctx.fillRect(0,0,W(canvas),H(canvas));
+    // grid
+    ctx.strokeStyle = "#0f1b3a"; ctx.lineWidth = 1;
+    for (let x=50; x<W(canvas); x+=50){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H(canvas)); ctx.stroke(); }
+    for (let y=50; y<H(canvas); y+=50){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W(canvas),y); ctx.stroke(); }
+  }
+
+  function drawScatter() {
+    clearCanvas(ctxScatter, scatter);
+    // centroids
+    centroids.forEach((c, k) => {
+      ctxScatter.strokeStyle = "#38bdf8";
+      ctxScatter.lineWidth = 2;
+      ctxScatter.beginPath(); ctxScatter.arc(c.x, c.y, 6, 0, Math.PI*2); ctxScatter.stroke();
+    });
+    // points
+    points.forEach((p, i) => {
+      const k = assignments[i];
+      ctxScatter.fillStyle = (centroids.length ? colors[k % colors.length] : "#9ca3af");
+      ctxScatter.strokeStyle = "#0f172a"; ctxScatter.lineWidth = 1;
+      ctxScatter.beginPath(); ctxScatter.arc(p.x, p.y, 4, 0, Math.PI*2); ctxScatter.fill(); ctxScatter.stroke();
+    });
+  }
+
+  function drawElbowChart() {
+    clearCanvas(ctxElbow, elbow);
+    if (!wcssByK.length) return;
+    const ys = wcssByK.map(d => d.WCSS);
+    const ymin = Math.min(...ys), ymax = Math.max(...ys);
+    const padX = 40, padY = 30;
+    const plotW = W(elbow) - 2*padX;
+    const plotH = H(elbow) - 2*padY;
+    const Kmin = wcssByK[0].K, Kmax = wcssByK[wcssByK.length-1].K;
+
+    function xScale(K){ return padX + (K - Kmin) * (plotW/Math.max(1,(Kmax - Kmin))); }
+    function yScale(v){ return padY + (ymax - v) * (plotH/Math.max(1,(ymax-ymin))); }
+
+    // axes
+    ctxElbow.strokeStyle = "#334155"; ctxElbow.lineWidth = 1.5;
+    // X axis
+    ctxElbow.beginPath(); ctxElbow.moveTo(padX, H(elbow)-padY); ctxElbow.lineTo(W(elbow)-padX, H(elbow)-padY); ctxElbow.stroke();
+    // Y axis
+    ctxElbow.beginPath(); ctxElbow.moveTo(padX, padY); ctxElbow.lineTo(padX, H(elbow)-padY); ctxElbow.stroke();
+    // labels
+    ctxElbow.fillStyle = "#cbd5e1"; ctxElbow.font = "12px system-ui";
+    ctxElbow.fillText("K", W(elbow)-padX-20, H(elbow)-padY+20);
+    ctxElbow.fillText("WCSS", padX-30, padY-10);
+
+    // line + points
+    ctxElbow.strokeStyle = "#60a5fa"; ctxElbow.lineWidth = 2;
+    ctxElbow.beginPath();
+    for (let i=0;i<wcssByK.length;i++){
+      const x = xScale(wcssByK[i].K), y = yScale(wcssByK[i].WCSS);
+      if (i===0) ctxElbow.moveTo(x,y); else ctxElbow.lineTo(x,y);
+    }
+    ctxElbow.stroke();
+
+    for (let i=0;i<wcssByK.length;i++){
+      const x = xScale(wcssByK[i].K), y = yScale(wcssByK[i].WCSS);
+      ctxElbow.fillStyle = "#e5e7eb";
+      ctxElbow.beginPath(); ctxElbow.arc(x,y,4,0,Math.PI*2); ctxElbow.fill();
+      ctxElbow.fillStyle = "#9ca3af";
+      ctxElbow.fillText(String(wcssByK[i].K), x-3, H(elbow)-padY+14);
+    }
+
+    // current K marker
+    const Kcur = parseInt(kSlider.value,10);
+    ctxElbow.strokeStyle = "#22c55e"; ctxElbow.lineWidth = 2;
+    const xcur = xScale(Kcur);
+    ctxElbow.beginPath(); ctxElbow.moveTo(xcur, padY); ctxElbow.lineTo(xcur, H(elbow)-padY); ctxElbow.stroke();
+    ctxElbow.fillStyle = "#22c55e"; ctxElbow.fillText(`K=${Kcur}`, xcur-16, padY+14);
+
+    // suggested elbow
+    const knee = detectElbow(wcssByK);
+    if (knee) {
+      const xk = xScale(knee.K), yk = yScale(wcssByK[knee.idx].WCSS);
+      ctxElbow.fillStyle = "#fbbf24";
+      ctxElbow.beginPath(); ctxElbow.arc(xk, yk, 6, 0, Math.PI*2); ctxElbow.fill();
+      ctxElbow.fillStyle = "#fbbf24";
+      ctxElbow.fillText(`Elbow ≈ K=${knee.K}`, xk+8, yk-8);
+    }
+  }
+
+  function drawAll() { drawScatter(); drawElbowChart(); }
+
+  /* ---------- Events ---------- */
+  function addPointFromEvent(e){
+    // Robust: offsetX/Y are relative to the target canvas even if there are margins/padding
+    const x = e.offsetX;
+    const y = e.offsetY;
+    points.push({x,y});
+    assignments = []; centroids = [];
+    wcssByK = [];
+    metricText.textContent = "";
+    statusEl.textContent = `${points.length} points — choose K and Cluster, or Compute Elbow.`;
+    drawAll();
+  }
+  scatter.addEventListener("click", addPointFromEvent, {passive:true});
+  scatter.addEventListener("pointerdown", addPointFromEvent, {passive:true});
+
+  kSlider.addEventListener("input", () => { kLabel.textContent = kSlider.value; });
+  kmaxSlider.addEventListener("input", () => { kmaxLabel.textContent = kmaxSlider.value; });
+
+  clearBtn.addEventListener("click", () => {
+    points = []; assignments = []; centroids = []; wcssByK = [];
+    statusEl.textContent = "Cleared. Click on the scatter to add points or use Random sample.";
+    metricText.textContent = "";
+    drawAll();
+  });
+
+  randomBtn.addEventListener("click", () => {
+    // Generate 2–4 blobs + some uniform noise
+    points = [];
+    const Ktrue = Math.floor(2 + Math.random()*3); // 2–4 clusters
+    const per = 45;
+    const Wc = W(scatter), Hc = H(scatter);
+    for (let k=0;k<Ktrue;k++){
+      const cx = 100 + Math.random()*(Wc - 200);
+      const cy = 100 + Math.random()*(Hc - 200);
+      const spread = 70 + Math.random()*70;
+      for (let i=0;i<per;i++){
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * spread;
+        points.push({ x: cx + Math.cos(a)*r, y: cy + Math.sin(a)*r });
+      }
+    }
+    for (let i=0;i<10;i++){
+      points.push({ x: 20 + Math.random()*(Wc - 40), y: 20 + Math.random()*(Hc - 40) });
+    }
+    assignments = []; centroids = []; wcssByK = [];
+    statusEl.textContent = `Random sample: ${points.length} points. Click “Compute Elbow” or select K and Cluster.`;
+    metricText.textContent = "";
+    drawAll();
+  });
+
+  testBtn.addEventListener("click", () => {
+    const cx = W(scatter)/2, cy = H(scatter)/2;
+    ctxScatter.fillStyle = "#60a5fa";
+    ctxScatter.beginPath(); ctxScatter.arc(cx, cy, 7, 0, Math.PI*2); ctxScatter.fill();
+    statusEl.textContent = "Test dot drawn in the center — drawing works.";
+  });
+
+  clusterBtn.addEventListener("click", () => {
+    const K = parseInt(kSlider.value,10);
+    if (points.length < K) { statusEl.textContent = `Need at least ${K} points for K=${K}.`; return; }
+    try {
+      const {assign, cents} = kmeans(points, K, 80);
+      assignments = assign; centroids = cents;
+      const wcss = computeWCSS(points, assignments, centroids);
+      metricText.textContent = `WCSS @ K=${K}: ${wcss.toFixed(2)}`;
+      statusEl.textContent = `Clustered with K=${K}.`;
+      drawAll();
+    } catch (err) {
+      statusEl.textContent = `Error: ${err.message}`;
+      console.error(err);
+    }
+  });
+
+  elbowBtn.addEventListener("click", () => {
+    if (points.length < 1) { statusEl.textContent = "Add points or generate a random sample first."; return; }
+    const Kmax = parseInt(kmaxSlider.value,10);
+    wcssByK = [];
+    try {
+      for (let K=1; K<=Kmax; K++){
+        if (points.length < K) break;
+        const {assign, cents} = kmeans(points, K, 80);
+        const wcss = computeWCSS(points, assign, cents);
+        wcssByK.push({K, WCSS: wcss});
+      }
+      const knee = detectElbow(wcssByK);
+      const bestK = knee ? knee.K : (wcssByK.length ? wcssByK[wcssByK.length-1].K : 1);
+      statusEl.textContent = `Elbow computed for K=1..${Kmax}. Suggested K ≈ ${bestK}.`;
+      metricText.textContent = `WCSS: ` + wcssByK.map(d => `${d.K}:${d.WCSS.toFixed(1)}`).join("  ");
+      drawAll();
+    } catch (err) {
+      statusEl.textContent = `Error: ${err.message}`;
+      console.error(err);
+    }
+  });
+
+  // initial paint
+  drawAll();
+});
+</script>
+</body>
+</html>
