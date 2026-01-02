@@ -1,0 +1,312 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Clustering Outlier Detector (Self‑contained, K=1–4)</title>
+<style>
+  :root {
+    --bg: #0b1223;
+    --panel: #111827;
+    --border: #1f2937;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --accent: #38bdf8;
+    --danger: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", sans-serif; }
+  .wrap { display:grid; grid-template-columns: 320px 1fr; gap:16px; padding:16px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:12px; }
+  h1 { font-size:1.1rem; margin:0 0 8px; }
+  label { display:block; margin:10px 0 6px; }
+  input[type="range"] { width:100%; }
+  .buttons { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  button { padding:8px 10px; border-radius:8px; border:1px solid #374151; background:#1f2937; color:var(--text); cursor:pointer; }
+  button:hover { border-color: var(--accent); }
+  #status { margin-top:8px; color:var(--muted); min-height:1.4em; }
+  .note { font-size:0.9rem; color:var(--muted); margin-top:6px; }
+  canvas {
+    background: var(--bg);
+    border:1px solid var(--border);
+    border-radius:10px;
+    display:block;
+    /* CSS size; JS will set internal pixel buffer with devicePixelRatio */
+    width: 900px;
+    height: 520px;
+    /* ensure it receives clicks even if embedded later */
+    pointer-events: auto;
+  }
+  .legend { margin-top:10px; font-size:0.9rem; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; margin-right:12px; }
+  .dot { width:12px; height:12px; border-radius:50%; display:inline-block; border:1px solid #374151; }
+  .centroid { width:14px; height:14px; border:2px solid var(--accent); background:transparent; border-radius:50%; display:inline-block; }
+  .outdot { width:12px; height:12px; border-radius:50%; display:inline-block; background: var(--danger); border:1px solid #000; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="panel">
+    <h1>Clustering-based Outlier Detection (k-means + Tukey radius)</h1>
+
+    <div id="status">Loading…</div>
+
+    <label>Clusters (K): <span id="kLabel">3</span></label>
+    <input id="kSlider" type="range" min="1" max="4" step="1" value="3" />
+
+    <div class="buttons">
+      <button id="clusterBtn">Cluster & Detect</button>
+      <button id="randomBtn">Random sample</button>
+      <button id="clearBtn">Clear</button>
+      <button id="testBtn">Test draw dot</button>
+    </div>
+
+    <div class="legend">
+      <span><span class="dot" style="background:#60a5fa"></span> Cluster points</span>
+      <span><span class="centroid"></span> Centroid</span>
+      <span><span class="outdot"></span> Outlier</span>
+    </div>
+
+    <p class="note">
+      Click on the canvas to add points. Boundaries are circles centered at each cluster’s centroid
+      with radius = <code>Q3 + 1.5 × IQR</code> of distances (Tukey’s fence). Points beyond the radius are outliers.
+    </p>
+  </section>
+
+  <section class="panel">
+    <canvas id="plot"></canvas>
+  </section>
+</div>
+
+<script>
+"use strict";
+
+/* ----- Error monitor: show any runtime error in status and console ----- */
+window.addEventListener("error", (e) => {
+  const status = document.getElementById("status");
+  if (status) status.textContent = "Runtime error: " + (e.message || e.error || "unknown");
+  console.error("Runtime error:", e.message, e.error);
+});
+
+/* ----- Boot after DOM is ready ----- */
+document.addEventListener("DOMContentLoaded", () => {
+  const statusEl   = document.getElementById("status");
+  const canvas     = document.getElementById("plot");
+  const kSlider    = document.getElementById("kSlider");
+  const kLabel     = document.getElementById("kLabel");
+  const clusterBtn = document.getElementById("clusterBtn");
+  const randomBtn  = document.getElementById("randomBtn");
+  const clearBtn   = document.getElementById("clearBtn");
+  const testBtn    = document.getElementById("testBtn");
+
+  statusEl.textContent = "JS loaded ✔️ — click on the canvas to add points or press Random sample.";
+
+  /* ----- Canvas setup with devicePixelRatio ----- */
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const dpr = window.devicePixelRatio || 1;
+
+  function sizeCanvasToCSS() {
+    const cssW = Math.floor(canvas.clientWidth);
+    const cssH = Math.floor(canvas.clientHeight);
+    canvas.width  = Math.max(1, Math.floor(cssW * dpr));
+    canvas.height = Math.max(1, Math.floor(cssH * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
+  }
+  sizeCanvasToCSS();
+  window.addEventListener("resize", () => { sizeCanvasToCSS(); draw(); });
+
+  const W = () => canvas.clientWidth;
+  const H = () => canvas.clientHeight;
+
+  /* ----- Data ----- */
+  let points = [];        // [{x,y}] in CSS pixels
+  let assignments = [];   // cluster index per point
+  let centroids = [];     // [{x,y}]
+  let radii = [];         // Tukey radius per cluster
+  const colors = ["#60a5fa", "#fbbf24", "#34d399", "#f472b6"]; // blue, amber, green, pink
+
+  /* ----- Helpers ----- */
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  function quantile(arr, q) {
+    if (!arr.length) return 0;
+    const s = arr.slice().sort((a,b)=>a-b);
+    const pos = (s.length - 1) * q;
+    const base = Math.floor(pos);
+    const frac = pos - base;
+    return s[base] + (s[base+1] !== undefined ? frac * (s[base+1] - s[base]) : 0);
+  }
+
+  function tukeyRadius(dists) {
+    if (!dists.length) return 0;
+    const q1 = quantile(dists, 0.25);
+    const q3 = quantile(dists, 0.75);
+    const iqr = q3 - q1;
+    return Math.max(q3 + 1.5 * iqr, 8); // small floor to avoid degenerate circles
+  }
+
+  function arraysEqual(a,b){
+    if (a.length !== b.length) return false;
+    for (let i=0;i<a.length;i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  function kmeans(data, K, maxIter = 60) {
+    if (data.length < K) throw new Error(`Need at least ${K} points.`);
+    // k-means++ init
+    let cents = [ data[Math.floor(Math.random() * data.length)] ];
+    while (cents.length < K) {
+      const d2 = data.map(p => Math.min(...cents.map(c => (p.x-c.x)**2 + (p.y-c.y)**2 )));
+      let sum = d2.reduce((a,b)=>a+b,0), r = Math.random()*sum, i = 0;
+      for (; i<d2.length && r>0; i++) r -= d2[i];
+      cents.push(data[Math.min(i, d2.length-1)]);
+    }
+    let assign = new Array(data.length).fill(0);
+    for (let it=0; it<maxIter; it++) {
+      // assignment
+      const newAssign = data.map(p => {
+        let best=0, bestD=Infinity;
+        for (let k=0;k<K;k++){ const d = dist(p, cents[k]); if (d<bestD){bestD=d; best=k;} }
+        return best;
+      });
+      if (arraysEqual(newAssign, assign) && it>0) { assign=newAssign; break; }
+      assign = newAssign;
+      // update
+      let sums = Array(K).fill(0).map(()=>({x:0,y:0,c:0}));
+      for (let i=0;i<data.length;i++){ const k=assign[i]; sums[k].x+=data[i].x; sums[k].y+=data[i].y; sums[k].c++; }
+      for (let k=0;k<K;k++){
+        cents[k] = sums[k].c ? {x:sums[k].x/sums[k].c, y:sums[k].y/sums[k].c}
+                             : data[Math.floor(Math.random()*data.length)];
+      }
+    }
+    return {assign, cents};
+  }
+
+  function computeRadii(data, assign, cents, K) {
+    const distsByCluster = Array(K).fill(0).map(()=>[]);
+    for (let i=0;i<data.length;i++){
+      const k = assign[i];
+      distsByCluster[k].push(dist(data[i], cents[k]));
+    }
+    return distsByCluster.map(tukeyRadius);
+  }
+
+  /* ----- Drawing ----- */
+  function clearCanvas() {
+    ctx.fillStyle = "#0b1223";
+    ctx.fillRect(0,0,W(),H());
+    // grid
+    ctx.strokeStyle = "#0f1b3a"; ctx.lineWidth = 1;
+    for (let x=50; x<W(); x+=50){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H()); ctx.stroke(); }
+    for (let y=50; y<H(); y+=50){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W(),y); ctx.stroke(); }
+  }
+
+  function draw() {
+    clearCanvas();
+    // boundaries + centroids
+    for (let k=0;k<centroids.length;k++){
+      const c = centroids[k], r = radii[k] || 0;
+      ctx.strokeStyle = colors[k] + "CC"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI*2); ctx.stroke();
+      ctx.strokeStyle = "#38bdf8";
+      ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI*2); ctx.stroke();
+    }
+    // points
+    for (let i=0;i<points.length;i++){
+      const p = points[i];
+      const k = assignments[i];
+      const out = (centroids.length && radii.length) ? (dist(p, centroids[k]) > (radii[k]||0)) : false;
+      if (out){
+        ctx.fillStyle = "#ef4444"; ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
+      } else {
+        ctx.fillStyle = centroids.length ? colors[k] : "#9ca3af"; ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 1;
+      }
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    }
+  }
+
+  /* ----- Events ----- */
+  function addPointFromEvent(e){
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    points.push({x,y});
+    assignments = []; centroids = []; radii = [];
+    statusEl.textContent = `${points.length} points — ready to cluster.`;
+    draw();
+  }
+  canvas.addEventListener("pointerdown", addPointFromEvent, {passive:true});
+  canvas.addEventListener("click", addPointFromEvent, {passive:true});
+
+  kSlider.addEventListener("input", () => { kLabel.textContent = kSlider.value; });
+
+  document.getElementById("clearBtn").addEventListener("click", () => {
+    points = []; assignments = []; centroids = []; radii = [];
+    statusEl.textContent = "Cleared. Click on the canvas to add points or use Random sample.";
+    draw();
+  });
+
+  document.getElementById("randomBtn").addEventListener("click", () => {
+    points = [];
+    const Ktrue = Math.floor(2 + Math.random()*3); // 2–4 clusters
+    const per = 32;
+    for (let k=0;k<Ktrue;k++){
+      const cx = 120 + Math.random() * (W() - 240);
+      const cy = 120 + Math.random() * (H() - 240);
+      const spread = 70 + Math.random() * 50;
+      for (let i=0;i<per;i++){
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * spread;
+        points.push({ x: cx + Math.cos(a)*r, y: cy + Math.sin(a)*r });
+      }
+    }
+    // add some outliers
+    for (let i=0;i<6;i++){
+      points.push({
+        x: Math.random() < 0.5 ? 20 + Math.random()*60 : W() - 80 + Math.random()*60,
+        y: Math.random() < 0.5 ? 20 + Math.random()*60 : H() - 80 + Math.random()*60
+      });
+    }
+    assignments = []; centroids = []; radii = [];
+    statusEl.textContent = `Random sample: ${points.length} points. Click “Cluster & Detect”.`;
+    draw();
+  });
+
+  document.getElementById("testBtn").addEventListener("click", () => {
+    // Draw a single dot in the center (diagnostic)
+    const cx = W()/2, cy = H()/2;
+    ctx.fillStyle = "#60a5fa";
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI*2); ctx.fill();
+    statusEl.textContent = "Test dot drawn in the center — drawing works.";
+  });
+
+  document.getElementById("clusterBtn").addEventListener("click", () => {
+    const K = parseInt(kSlider.value, 10);
+    kLabel.textContent = String(K);
+    if (points.length < K) {
+      statusEl.textContent = `Need at least ${K} points for K=${K}.`;
+      return;
+    }
+    try {
+      const {assign, cents} = kmeans(points, K, 80);
+      assignments = assign;
+      centroids = cents;
+      radii = computeRadii(points, assignments, centroids, K);
+      const outCount = points.reduce((acc,p,i) =>
+        acc + (dist(p, centroids[assignments[i]]) > radii[assignments[i]] ? 1 : 0), 0);
+      statusEl.textContent = `Clustered (K=${K}). Outliers: ${outCount}, Inliers: ${points.length - outCount}.`;
+      draw();
+    } catch (err) {
+      statusEl.textContent = `Error: ${err.message}`;
+      console.error(err);
+    }
+  });
+
+  // initial paint
+  draw();
+});
+</script>
+</body>
+</html>
