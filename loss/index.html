@@ -1,0 +1,580 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Linear Separator & Loss vs w₁ / w₂ (Canvas + Accuracies)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #06b6d4;
+      --good: #22c55e;
+      --bad: #ef4444;
+      --grid: #1f2937;
+      --bar-bg: #1f2937;
+      --bar-fill: #06b6d4;
+      --bar-fill-good: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #1f2937;
+      background: linear-gradient(90deg, #0b1221, #0f172a 50%);
+    }
+    header h1 { margin: 0 0 6px 0; font-size: 18px; letter-spacing: 0.3px; }
+    header p { margin: 0; color: var(--muted); font-size: 13px; }
+    .wrap {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 16px;
+      padding: 16px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid #222;
+      border-radius: 10px;
+      padding: 14px;
+    }
+    .controls h2, .plots h2, .acc-panel h2 {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: .2px;
+    }
+    .control { margin: 14px 0; }
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .control output {
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      min-width: 90px;
+      text-align: right;
+    }
+    .control input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+    .metrics {
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .metrics b { color: var(--text); }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .grid-right {
+      display: grid;
+      grid-template-rows: 1fr 1fr;
+      gap: 16px;
+    }
+    .canvas-wrap {
+      position: relative;
+      width: 100%;
+      height: 420px;
+      background: #0b1221;
+      border-radius: 8px;
+      border: 1px solid #1f2937;
+      overflow: hidden;
+    }
+    .canvas-wrap-small {
+      position: relative;
+      width: 100%;
+      height: 200px;
+      background: #0b1221;
+      border-radius: 8px;
+      border: 1px solid #1f2937;
+      overflow: hidden;
+    }
+    canvas { width: 100%; height: 100%; display: block; }
+    .legend {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+    .hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+    /* Accuracies panel */
+    .acc-row {
+      display: grid;
+      grid-template-columns: 78px 1fr 56px;
+      gap: 8px;
+      align-items: center;
+      margin: 8px 0;
+      font-size: 13px;
+      color: var(--text);
+    }
+    .bar {
+      width: 100%;
+      height: 8px;
+      background: var(--bar-bg);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid #00000033;
+    }
+    .bar > div {
+      height: 100%;
+      width: 0%;
+      background: var(--bar-fill);
+      border-radius: 999px;
+      transition: width 120ms linear, background-color 120ms linear;
+    }
+    .bar.good > div { background: var(--bar-fill-good); }
+
+    @media (max-width: 1024px) {
+      .wrap { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+      .grid-right { grid-template-rows: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Perfect Separation & Loss vs Parameters</h1>
+    <p>Left: observations & decision boundary. Right: <b>two 2D loss charts</b> with <b>Loss L=r²</b> on the vertical axis, and the horizontal axis being <b>w₁</b> (top) and <b>w₂</b> (bottom).</p>
+  </header>
+
+  <div class="wrap">
+    <!-- Left column: controls + accuracies -->
+    <div>
+      <div class="panel controls">
+        <h2>Parameters</h2>
+        <div class="control">
+          <label><span>w₁</span><output id="w1Out">1.00</output></label>
+          <input id="w1" type="range" min="-3" max="3" step="0.01" value="1" />
+        </div>
+        <div class="control">
+          <label><span>w₂</span><output id="w2Out">1.00</output></label>
+          <input id="w2" type="range" min="-3" max="3" step="0.01" value="1" />
+        </div>
+        <div class="control">
+          <label><span>b</span><output id="bOut">0.00</output></label>
+          <input id="b" type="range" min="-6" max="6" step="0.01" value="0" />
+        </div>
+
+        <div class="metrics">
+          <div>Misclassified: <b><span id="misCount">0</span></b> / <b><span id="totalCount">0</span></b></div>
+          <div>Residual (rate): <b><span id="residual">0.00</span></b></div>
+          <div>Loss L(r)=r²: <b><span id="loss">0.00</span></b></div>
+          <div class="hint">Tip: Try <code>w₁ = 1</code>, <code>w₂ = 1</code>, <code>b ≈ 0</code> (decision line <code>x + y = 0</code>).</div>
+        </div>
+      </div>
+
+      <div class="panel acc-panel" style="margin-top:12px;">
+        <h2>Accuracies</h2>
+        <div class="acc-row">
+          <span>Overall</span>
+          <div class="bar" id="barOverall"><div id="fillOverall"></div></div>
+          <output id="accOverall">100%</output>
+        </div>
+        <div class="acc-row">
+          <span>Class A</span>
+          <div class="bar" id="barA"><div id="fillA"></div></div>
+          <output id="accA">100%</output>
+        </div>
+        <div class="acc-row">
+          <span>Class B</span>
+          <div class="bar" id="barB"><div id="fillB"></div></div>
+          <output id="accB">100%</output>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right column: plots -->
+    <div class="panel plots">
+      <h2>Charts</h2>
+      <div class="grid">
+        <!-- Left: feature space -->
+        <div>
+          <div class="canvas-wrap"><canvas id="chart1"></canvas></div>
+          <div class="legend">Class A = blue •, Class B = orange •. Decision boundary: <code>w₁x + w₂y + b = 0</code>.</div>
+        </div>
+
+        <!-- Right: loss vs w1 (top) and loss vs w2 (bottom) -->
+        <div class="grid-right">
+          <div>
+            <div class="canvas-wrap-small"><canvas id="chartW1"></canvas></div>
+            <div class="legend">Loss vs <code>w₁</code> (for current <code>w₂</code> and <code>b</code>). Marker shows current <code>(w₁, L)</code>.</div>
+          </div>
+          <div>
+            <div class="canvas-wrap-small"><canvas id="chartW2"></canvas></div>
+            <div class="legend">Loss vs <code>w₂</code> (for current <code>w₁</code> and <code>b</code>). Marker shows current <code>(w₂, L)</code>.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      // ---------- Dataset: slightly more spread & closer, still separable ----------
+      const classA = [
+        [0.5, 0.2],[0.8, 0.4],[1.1, 0.1],[0.9, 0.6],
+        [1.2, 0.5],[0.6, 0.9],[0.7, 0.8],[0.4, 1.2],
+        [1.4, 0.2],[0.3, 1.0],[1.3, 0.4],[0.9, 0.7],
+        [0.6, 0.6],[1.5, 0.1],[-0.1, 0.6],[0.2, 0.4]
+      ];
+      const classB = classA.map(([x,y]) => ([-x,-y])); // mirror -> separable with x+y=0
+      const DATA = classA.map(p => ({x: p[0], y: p[1], ytrue: 1}))
+        .concat(classB.map(p => ({x: p[0], y: p[1], ytrue: -1})));
+
+      // ---------- DOM ----------
+      const w1El = document.getElementById('w1');
+      const w2El = document.getElementById('w2');
+      const bEl  = document.getElementById('b');
+      const w1Out = document.getElementById('w1Out');
+      const w2Out = document.getElementById('w2Out');
+      const bOut  = document.getElementById('bOut');
+
+      const misCountEl = document.getElementById('misCount');
+      const totalCountEl = document.getElementById('totalCount');
+      const residualEl = document.getElementById('residual');
+      const lossEl = document.getElementById('loss');
+
+      const accOverallEl = document.getElementById('accOverall');
+      const accAEl = document.getElementById('accA');
+      const accBEl = document.getElementById('accB');
+      const barOverall = document.getElementById('barOverall');
+      const barA = document.getElementById('barA');
+      const barB = document.getElementById('barB');
+      const fillOverall = document.getElementById('fillOverall');
+      const fillA = document.getElementById('fillA');
+      const fillB = document.getElementById('fillB');
+
+      const c1  = document.getElementById('chart1');
+      const cW1 = document.getElementById('chartW1');
+      const cW2 = document.getElementById('chartW2');
+      totalCountEl.textContent = DATA.length;
+
+      // ---------- Canvas sizing ----------
+      function sizeCanvas(canvas) {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.max(1, Math.floor(rect.width));
+        canvas.height = Math.max(1, Math.floor(rect.height));
+        return { width: canvas.width, height: canvas.height };
+      }
+
+      // ---------- Plot bounds (feature space) ----------
+      const xs = DATA.map(d => d.x), ys = DATA.map(d => d.y);
+      const xMin = Math.min(...xs) - 0.5, xMax = Math.max(...xs) + 0.5;
+      const yMin = Math.min(...ys) - 0.5, yMax = Math.max(...ys) + 0.5;
+
+      function makeMapper(width, height, margin, xRange, yRange) {
+        const plotW = width - margin.left - margin.right;
+        const plotH = height - margin.top - margin.bottom;
+        const xScale = plotW / (xRange[1] - xRange[0]);
+        const yScale = plotH / (yRange[1] - yRange[0]);
+        function toCanvasX(x) { return margin.left + (x - xRange[0]) * xScale; }
+        function toCanvasY(y) { return margin.top + plotH - (y - yRange[0]) * yScale; }
+        return {toCanvasX, toCanvasY, plotW, plotH, margin, xRange, yRange};
+      }
+
+      function drawAxes(ctx, width, height, mapper, xLabel, yLabel) {
+        const {margin, plotW, plotH, xRange, yRange} = mapper;
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = '#0b1221';
+        ctx.fillRect(0, 0, width, height);
+
+        // Grid
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid') || '#1f2937';
+        ctx.lineWidth = 1;
+        const ticks = 6;
+        for (let i = 0; i <= ticks; i++) {
+          const tx = margin.left + (plotW * i / ticks);
+          const ty = margin.top + (plotH * i / ticks);
+          ctx.beginPath(); ctx.moveTo(tx, margin.top); ctx.lineTo(tx, margin.top + plotH); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(margin.left, ty); ctx.lineTo(margin.left + plotW, ty); ctx.stroke();
+        }
+
+        // Border
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(margin.left, margin.top, plotW, plotH);
+
+        // Axis labels
+        ctx.fillStyle = '#e5e7eb';
+        ctx.font = '13px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(xLabel, margin.left + plotW / 2, height - 8);
+        ctx.save();
+        ctx.translate(12, margin.top + plotH / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(yLabel, 0, 0);
+        ctx.restore();
+
+        // Min/max tick labels (optional, subtle)
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '11px system-ui';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${xRange[0].toFixed(0)}`, margin.left + 2, height - 20);
+        ctx.textAlign = 'right';
+        ctx.fillText(`${xRange[1].toFixed(0)}`, margin.left + plotW - 2, height - 20);
+        ctx.save();
+        ctx.translate(20, margin.top + plotH - 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'left';
+        ctx.fillText(`${yRange[0].toFixed(0)}`, 0, 0);
+        ctx.translate(0, -plotH + 4);
+        ctx.fillText(`${yRange[1].toFixed(0)}`, 0, 0);
+        ctx.restore();
+      }
+
+      // ---------- Model evaluation ----------
+      function sign(z) { return z >= 0 ? 1 : -1; }
+      function residualRate(w1, w2, b) {
+        let mis = 0;
+        for (const d of DATA) {
+          const z = w1 * d.x + w2 * d.y + b;
+          if ((z >= 0 ? 1 : -1) !== d.ytrue) mis++;
+        }
+        return mis / DATA.length;
+      }
+
+      function evaluate(w1, w2, b) {
+        let mis = 0;
+        let totalA = 0, totalB = 0, correctA = 0, correctB = 0;
+        const pred = DATA.map(d => {
+          const z = w1 * d.x + w2 * d.y + b;
+          const yhat = sign(z);
+          const correct = (yhat === d.ytrue);
+          if (!correct) mis++;
+          if (d.ytrue === 1) { totalA++; if (correct) correctA++; }
+          else { totalB++; if (correct) correctB++; }
+          return {...d, yhat, correct};
+        });
+        const r = mis / DATA.length;
+        const accOverall = 1 - r;
+        const accA = totalA ? (correctA / totalA) : 0;
+        const accB = totalB ? (correctB / totalB) : 0;
+        return {pred, mis, r, L: r*r, accOverall, accA, accB};
+      }
+
+      function decisionLine(w1, w2, b) {
+        const eps = 1e-6;
+        if (Math.abs(w2) > eps) {
+          const x1 = xMin, x2 = xMax;
+          const y1 = -(w1 * x1 + b) / w2;
+          const y2 = -(w1 * x2 + b) / w2;
+          return {x: [x1, x2], y: [y1, y2]};
+        } else if (Math.abs(w1) > eps) {
+          const x = -b / w1;
+          return {x: [x, x], y: [yMin, yMax]};
+        } else {
+          return {x: [], y: []};
+        }
+      }
+
+      // ---------- Chart 1 (feature space) ----------
+      function renderChart1(evalRes, w1, w2, b) {
+        const {width, height} = sizeCanvas(c1);
+        const ctx = c1.getContext('2d');
+        const mapper = makeMapper(width, height, {left: 48, right: 16, top: 16, bottom: 32}, [xMin,xMax], [yMin,yMax]);
+        const {toCanvasX, toCanvasY} = mapper;
+
+        drawAxes(ctx, width, height, mapper, 'x₁ (feature)', 'x₂ (feature)');
+
+        // Points
+        for (const p of evalRes.pred) {
+          const cx = toCanvasX(p.x);
+          const cy = toCanvasY(p.y);
+          ctx.beginPath();
+          ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+          ctx.fillStyle = (p.ytrue === 1) ? '#3b82f6' : '#f59e0b';
+          ctx.fill();
+          if (!p.correct) {
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#ef4444';
+            ctx.stroke();
+          }
+        }
+
+        // Decision boundary
+        const line = decisionLine(w1, w2, b);
+        if (line.x.length) {
+          ctx.beginPath();
+          ctx.moveTo(toCanvasX(line.x[0]), toCanvasY(line.y[0]));
+          ctx.lineTo(toCanvasX(line.x[1]), toCanvasY(line.y[1]));
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#10b981';
+          ctx.stroke();
+        }
+      }
+
+      // ---------- Chart: Loss vs w₁ ----------
+      function renderLossVsW1(w2, b, currentW1) {
+        const {width, height} = sizeCanvas(cW1);
+        const ctx = cW1.getContext('2d');
+        const wMin = -3, wMax = 3;
+        const mapper = makeMapper(width, height, {left: 56, right: 16, top: 16, bottom: 32}, [wMin, wMax], [0, 1]);
+        const {toCanvasX, toCanvasY} = mapper;
+
+        drawAxes(ctx, width, height, mapper, 'w₁', 'Loss L = r²');
+
+        // Sample curve L(w1 | w2,b)
+        const N = 121;
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+          const w1 = wMin + (wMax - wMin) * (i / (N - 1));
+          const r = residualRate(w1, w2, b);
+          const L = r * r;
+          const cx = toCanvasX(w1);
+          const cy = toCanvasY(L);
+          if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+        }
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#94a3b8';
+        ctx.stroke();
+
+        // Marker at current w1
+        const rNow = residualRate(currentW1, w2, b);
+        const LNow = rNow * rNow;
+        const mx = toCanvasX(currentW1);
+        const my = toCanvasY(LNow);
+        ctx.beginPath();
+        ctx.arc(mx, my, 6, 0, Math.PI * 2);
+        ctx.fillStyle = (LNow === 0) ? '#22c55e' : '#06b6d4';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#0b1221';
+        ctx.stroke();
+
+        // Label
+        ctx.fillStyle = '#e5e7eb';
+        ctx.font = '12px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(`w₁=${currentW1.toFixed(2)} • L=${LNow.toFixed(3)} (r=${rNow.toFixed(2)})`, mx, my - 12);
+
+        // Subtle vertical guide
+        ctx.beginPath();
+        ctx.moveTo(mx, mapper.margin.top);
+        ctx.lineTo(mx, mapper.margin.top + mapper.plotH);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#1f2937';
+        ctx.setLineDash([4,3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // ---------- Chart: Loss vs w₂ ----------
+      function renderLossVsW2(w1, b, currentW2) {
+        const {width, height} = sizeCanvas(cW2);
+        const ctx = cW2.getContext('2d');
+        const wMin = -3, wMax = 3;
+        const mapper = makeMapper(width, height, {left: 56, right: 16, top: 16, bottom: 32}, [wMin, wMax], [0, 1]);
+        const {toCanvasX, toCanvasY} = mapper;
+
+        drawAxes(ctx, width, height, mapper, 'w₂', 'Loss L = r²');
+
+        // Sample curve L(w2 | w1,b)
+        const N = 121;
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+          const w2 = wMin + (wMax - wMin) * (i / (N - 1));
+          const r = residualRate(w1, w2, b);
+          const L = r * r;
+          const cx = toCanvasX(w2);
+          const cy = toCanvasY(L);
+          if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+        }
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#94a3b8';
+        ctx.stroke();
+
+        // Marker at current w2
+        const rNow = residualRate(w1, currentW2, b);
+        const LNow = rNow * rNow;
+        const mx = toCanvasX(currentW2);
+        const my = toCanvasY(LNow);
+        ctx.beginPath();
+        ctx.arc(mx, my, 6, 0, Math.PI * 2);
+        ctx.fillStyle = (LNow === 0) ? '#22c55e' : '#06b6d4';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#0b1221';
+        ctx.stroke();
+
+        // Label
+        ctx.fillStyle = '#e5e7eb';
+        ctx.font = '12px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(`w₂=${currentW2.toFixed(2)} • L=${LNow.toFixed(3)} (r=${rNow.toFixed(2)})`, mx, my - 12);
+
+        // Subtle vertical guide
+        ctx.beginPath();
+        ctx.moveTo(mx, mapper.margin.top);
+        ctx.lineTo(mx, mapper.margin.top + mapper.plotH);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#1f2937';
+        ctx.setLineDash([4,3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // ---------- UI helpers ----------
+      function pct(n) { return (n * 100).toFixed(0) + '%'; }
+      function setBar(barEl, fillEl, value) {
+        fillEl.style.width = Math.max(0, Math.min(1, value)) * 100 + '%';
+        if (value >= 0.999) barEl.classList.add('good'); else barEl.classList.remove('good');
+      }
+
+      // ---------- Update ----------
+      function update() {
+        const w1 = parseFloat(w1El.value);
+        const w2 = parseFloat(w2El.value);
+        const b  = parseFloat(bEl.value);
+        w1Out.textContent = w1.toFixed(2);
+        w2Out.textContent = w2.toFixed(2);
+        bOut.textContent  = b.toFixed(2);
+
+        const res = evaluate(w1, w2, b);
+
+        // Metrics
+        misCountEl.textContent = res.mis;
+        residualEl.textContent = res.r.toFixed(2);
+        lossEl.textContent = res.L.toFixed(2);
+
+        // Accuracies panel
+        accOverallEl.textContent = pct(res.accOverall);
+        accAEl.textContent = pct(res.accA);
+        accBEl.textContent = pct(res.accB);
+        setBar(barOverall, fillOverall, res.accOverall);
+        setBar(barA, fillA, res.accA);
+        setBar(barB, fillB, res.accB);
+
+        // Charts
+        renderChart1(res, w1, w2, b);
+        renderLossVsW1(w2, b, w1);
+        renderLossVsW2(w1, b, w2);
+      }
+
+      // ---------- Init ----------
+      function init() {
+        update(); // initial render
+        [w1El, w2El, bEl].forEach(el => el.addEventListener('input', update));
+        window.addEventListener('resize', update);
+      }
+      init();
+    })();
+  </script>
+</body>
+</html>
