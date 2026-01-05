@@ -1,0 +1,557 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Perceptron Learning Rule — Upper-Right Quadrant (Perfectly Separable)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #0b1220;
+      --accent: #22c55e;
+      --accent2: #3b82f6;
+      --accent3: #f59e0b;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --danger: #ef4444;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Ubuntu, Cantarell, "Noto Sans";
+      background: linear-gradient(135deg, #0b1024 0%, #0f172a 100%);
+      color: var(--text);
+    }
+    header {
+      padding: 20px 24px;
+      border-bottom: 1px solid #1f2937;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { margin: 0; font-size: 20px; font-weight: 700; }
+    .container {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 20px;
+      padding: 20px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    .panel h2 { margin: 0 0 12px; font-size: 16px; font-weight: 700; }
+
+    .intro {
+      margin: 16px 20px 0;
+      background: #0b1024;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 14px 16px;
+      line-height: 1.55;
+      color: #cbd5e1;
+    }
+    .intro strong { color: #e2e8f0; }
+    .intro code { color: #c7f9cc; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .control { display: flex; flex-direction: column; gap: 6px; }
+    .control label { font-size: 13px; color: var(--muted); }
+    .control input[type="number"] {
+      background: #0b1024;
+      border: 1px solid #1f2937;
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    button {
+      appearance: none;
+      border: 1px solid #1f2937;
+      background: #0b1024;
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 150ms ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    button#trainBtn { border-color: var(--accent); color: #10b981; }
+    button#resetBtn { border-color: var(--danger); color: #f87171; }
+    button#randomBtn { border-color: var(--accent2); color: #60a5fa; }
+    .status { font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    .metric { background: #0b1024; border: 1px solid #1f2937; border-radius: 10px; padding: 10px; }
+    .metric code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+    canvas {
+      width: 100%;
+      height: 520px;
+      background: radial-gradient(ellipse at center, #0b1220 0%, #0a0e1a 60%, #090d18 100%);
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+    }
+    .legend { display: flex; gap: 14px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--muted); }
+    .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .dot.blue { background: var(--accent2); }
+    .dot.orange { background: var(--accent3); }
+    .dot.white { background: #e5e7eb; }
+    .note { margin-top: 10px; font-size: 12px; color: #94a3b8; }
+    @media (max-width: 960px) { .container { grid-template-columns: 1fr; } canvas { height: 400px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Perceptron Learning Rule — Upper-Right Quadrant (Perfectly Separable)</h1>
+    <div style="font-size:13px;color:#94a3b8;">Two close clusters in positive x,y with a guaranteed linear separator (try bias b = 0).</div>
+  </header>
+
+  <!-- Short intro: what to do & what you'll learn -->
+  <div class="intro">
+    <strong>How to use this demo</strong>
+    <ol style="margin: 8px 0 0 18px;">
+      <li>Set the <em>learning rate</em> (η) and the fixed <em>bias</em> (b). For this dataset, <code>b = 0</code> works well.</li>
+      <li>Click <strong>Train</strong>. Each click finds one misclassified point and updates the weights
+          <code>w &larr; w + η · y · x</code> repeatedly (small internal steps) until that point is correctly classified.</li>
+      <li>Repeat until the status shows that all points are perfectly separated.</li>
+    </ol>
+    <div style="height:8px"></div>
+    <strong>What you’ll observe/learn</strong>
+    <ul style="margin: 6px 0 0 18px;">
+      <li>The dashed decision boundary <code>w<sub>x</sub>x + w<sub>y</sub>y + b = 0</code> rotates as <code>w</code> changes.</li>
+      <li>The green weight vector shows the normal to the boundary; its direction encodes the separating line.</li>
+      <li>Higher η converges in fewer presses but with larger jumps; lower η needs more presses but is smoother.</li>
+      <li>The bias <code>b</code> controls the intercept. With <code>b=0</code>, the separator goes through the origin.</li>
+      <li>Because the data are linearly separable, the perceptron can reach a perfect separator with suitable <code>b</code>.</li>
+    </ul>
+  </div>
+
+  <div class="container">
+    <!-- LEFT: Chart -->
+    <div class="panel">
+      <h2>Dataset & Decision Boundary</h2>
+      <canvas id="plot" width="900" height="520"></canvas>
+      <div class="legend">
+        <span><span class="dot blue"></span>Class +1 (blue)</span>
+        <span><span class="dot orange"></span>Class −1 (orange)</span>
+        <span><span class="dot white"></span>Current training point</span>
+      </div>
+      <div class="note">
+        Decision boundary: <code>w<sub>x</sub> · x + w<sub>y</sub> · y + b = 0</code>. With <code>b = 0</code>, the boundary passes through the origin; a separator exists between the two slopes.
+      </div>
+    </div>
+
+    <!-- RIGHT: Controls & Status -->
+    <div class="panel">
+      <h2>Controls</h2>
+      <div class="controls">
+        <div class="control">
+          <label for="lr">Learning rate (η)</label>
+          <input id="lr" type="number" step="0.01" value="0.2" />
+        </div>
+        <div class="control">
+          <label for="bias">Bias (b) — fixed during training</label>
+          <input id="bias" type="number" step="0.1" value="0.0" />
+        </div>
+      </div>
+
+      <div class="buttons">
+        <button id="trainBtn">Train</button>
+        <button id="resetBtn">Reset</button>
+        <button id="randomBtn">Randomize data</button>
+      </div>
+
+      <div class="status" id="status">
+        Ready. Initial weights <code>w = (0.00, 0.00)</code>, fixed bias <code>b = 0.00</code>.
+      </div>
+
+      <div class="metrics">
+        <div class="metric">
+          <div><strong>Weights</strong></div>
+          <div id="weights"><code>w = (0.00, 0.00)</code></div>
+          <div id="norm"><code>‖w‖ = 0.00</code></div>
+        </div>
+        <div class="metric">
+          <div><strong>Accuracy</strong></div>
+          <div id="acc"><code>Accuracy = 50.00%</code></div>
+          <div id="mis"><code>Misclassified = 0 / 0</code></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ============================
+    // CONFIG & STATE
+    // ============================
+    const canvas = document.getElementById('plot');
+    const ctx = canvas.getContext('2d');
+
+    const lrInput = document.getElementById('lr');
+    const biasInput = document.getElementById('bias');
+    const trainBtn = document.getElementById('trainBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const randomBtn = document.getElementById('randomBtn');
+
+    const statusEl = document.getElementById('status');
+    const weightsEl = document.getElementById('weights');
+    const normEl = document.getElementById('norm');
+    const accEl = document.getElementById('acc');
+    const misEl = document.getElementById('mis');
+
+    // Upper-right quadrant range
+    const RANGE = { xmin: 0, xmax: 10, ymin: 0, ymax: 10 };
+
+    // Colors
+    const COLOR_PLUS = '#3b82f6';  // blue
+    const COLOR_MINUS = '#f59e0b'; // orange
+    const COLOR_AXIS = '#374151';
+    const COLOR_GRID = '#1f2937';
+    const COLOR_BOUNDARY = '#22c55e';
+    const COLOR_ACTIVE = '#e5e7eb';
+
+    // Perceptron state
+    let w = { x: 0, y: 0 };  // weights
+    let b = 0;               // fixed bias
+    let data = [];           // {x, y, label}
+    let activeIndex = 0;     // pointer for next misclassified point
+
+    // ============================
+    // UTILITIES
+    // ============================
+    const mapX = (x) => {
+      const pad = 40;
+      return pad + (x - RANGE.xmin) * (canvas.width - 2 * pad) / (RANGE.xmax - RANGE.xmin);
+    };
+    const mapY = (y) => {
+      const pad = 30;
+      const v = pad + (y - RANGE.ymin) * (canvas.height - 2 * pad) / (RANGE.ymax - RANGE.ymin);
+      return canvas.height - v; // invert y for canvas
+    };
+    const unmapX = (px) => {
+      const pad = 40;
+      return RANGE.xmin + (px - pad) * (RANGE.xmax - RANGE.xmin) / (canvas.width - 2 * pad);
+    };
+    const unmapY = (py) => {
+      const pad = 30;
+      const v = canvas.height - py;
+      return RANGE.ymin + (v - pad) * (RANGE.ymax - RANGE.ymin) / (canvas.height - 2 * pad);
+    };
+
+    function dot(wx, wy, x, y, bias) { return wx * x + wy * y + bias; }
+
+    function classify(pt) {
+      const s = dot(w.x, w.y, pt.x, pt.y, b);
+      if (s > 0) return +1;
+      if (s < 0) return -1;
+      return 0; // treat exactly-on-boundary as misclassified to keep training moving
+    }
+
+    function length(vec) { return Math.sqrt(vec.x * vec.x + vec.y * vec.y); }
+
+    // ============================
+    // DATA INITIALIZATION (GUARANTEED SEPARABLE)
+    // ============================
+    // Two close lines through the origin: y ≈ slope * x, with small noise.
+    // Slopes ensure separability across the full x-range.
+    function makeDefaultData() {
+      const pts = [];
+      const randn = () => {
+        // Box-Muller
+        let u = 0, v = 0;
+        while (u === 0) u = Math.random();
+        while (v === 0) v = Math.random();
+        return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+      };
+      const randu = (a, b) => a + Math.random() * (b - a);
+
+      const N = 24;               // points per class
+      const slopeMinus = 0.95;    // lower slope (class -1)
+      const slopePlus  = 1.15;    // higher slope (class +1)
+      const noiseScale = 0.15;    // small vertical noise
+      const xJitter    = 0.10;    // small x jitter
+      const xMin = 1.5, xMax = 9.5;
+
+      // Keep a strict margin: clip vertical noise so classes do not overlap
+      const clipNoise = (n) => Math.max(-0.14, Math.min(0.14, n));
+
+      for (let i = 0; i < N; i++) {
+        const baseX = randu(xMin, xMax);
+        const x1 = Math.max(0.05, baseX + xJitter * randn());
+        const x2 = Math.max(0.05, baseX + xJitter * randn());
+
+        const yPlus  = slopePlus  * baseX + clipNoise(noiseScale * randn());
+        const yMinus = slopeMinus * baseX + clipNoise(noiseScale * randn());
+
+        pts.push({ x: x1, y: Math.max(0.05, yPlus),  label: +1 });
+        pts.push({ x: x2, y: Math.max(0.05, yMinus), label: -1 });
+      }
+      return pts;
+    }
+
+    function randomizeData() {
+      data = makeDefaultData();
+      activeIndex = 0;
+      draw();
+      updateMetrics();
+      statusEl.innerHTML = `Dataset randomized (upper-right quadrant, linearly separable). Initial weights <code>w = (0.00, 0.00)</code>, bias <code>b = ${b.toFixed(2)}</code>.`;
+    }
+
+    // ============================
+    // DRAWING
+    // ============================
+    function drawAxes() {
+      // Grid
+      ctx.strokeStyle = COLOR_GRID;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let gx = Math.ceil(RANGE.xmin); gx <= RANGE.xmax; gx += 1) {
+        ctx.moveTo(mapX(gx), mapY(RANGE.ymin));
+        ctx.lineTo(mapX(gx), mapY(RANGE.ymax));
+      }
+      for (let gy = Math.ceil(RANGE.ymin); gy <= RANGE.ymax; gy += 1) {
+        ctx.moveTo(mapX(RANGE.xmin), mapY(gy));
+        ctx.lineTo(mapX(RANGE.xmax), mapY(gy));
+      }
+      ctx.stroke();
+
+      // Axes
+      ctx.strokeStyle = COLOR_AXIS;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(mapX(RANGE.xmin), mapY(0));
+      ctx.lineTo(mapX(RANGE.xmax), mapY(0));
+      ctx.moveTo(mapX(0), mapY(RANGE.ymin));
+      ctx.lineTo(mapX(0), mapY(RANGE.ymax));
+      ctx.stroke();
+
+      // Axis labels
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '12px system-ui';
+      ctx.fillText('x', mapX(RANGE.xmax) - 16, mapY(0) - 8);
+      ctx.fillText('y', mapX(0) + 8, mapY(RANGE.ymax) + 16);
+    }
+
+    function drawPoints() {
+      for (let i = 0; i < data.length; i++) {
+        const pt = data[i];
+        const px = mapX(pt.x);
+        const py = mapY(pt.y);
+        const color = pt.label === +1 ? COLOR_PLUS : COLOR_MINUS;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, 2 * Math.PI);
+        ctx.fill();
+
+        if (i === activeIndex) {
+          ctx.strokeStyle = COLOR_ACTIVE;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(px, py, 9, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function drawWeightsVector() {
+      if (length(w) < 1e-6) return;
+      const originX = mapX(0), originY = mapY(0);
+      const scale = 12;
+      const endX = mapX(w.x / scale);
+      const endY = mapY(w.y / scale);
+
+      ctx.strokeStyle = '#a7f3d0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(originX, originY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+
+      const angle = Math.atan2(originY - endY, endX - originX);
+      const headLen = 10;
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(endX - headLen * Math.cos(angle - Math.PI / 6),
+                 endY + headLen * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(endX - headLen * Math.cos(angle + Math.PI / 6),
+                 endY + headLen * Math.sin(angle + Math.PI / 6));
+      ctx.lineTo(endX, endY);
+      ctx.fillStyle = '#a7f3d0';
+      ctx.fill();
+    }
+
+    function drawDecisionBoundary() {
+      const wx = w.x, wy = w.y, bias = b;
+      if (Math.abs(wx) < 1e-9 && Math.abs(wy) < 1e-9) return;
+
+      ctx.strokeStyle = COLOR_BOUNDARY;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+
+      if (Math.abs(wy) >= 1e-9) {
+        const x1 = RANGE.xmin, x2 = RANGE.xmax;
+        const y1 = - (wx / wy) * x1 - (bias / wy);
+        const y2 = - (wx / wy) * x2 - (bias / wy);
+        ctx.moveTo(mapX(x1), mapY(y1));
+        ctx.lineTo(mapX(x2), mapY(y2));
+      } else {
+        const xv = -bias / wx;
+        ctx.moveTo(mapX(xv), mapY(RANGE.ymin));
+        ctx.lineTo(mapX(xv), mapY(RANGE.ymax));
+      }
+
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawAxes();
+      drawDecisionBoundary();
+      drawWeightsVector();
+      drawPoints();
+    }
+
+    // ============================
+    // METRICS & STATUS
+    // ============================
+    function recomputeAccuracy() {
+      let correct = 0, mis = 0;
+      for (const pt of data) {
+        const pred = classify(pt);
+        if (pred === pt.label) correct++;
+        else mis++;
+      }
+      return { correct, mis, total: data.length, acc: (correct / data.length) * 100 };
+    }
+
+    function updateMetrics() {
+      const { correct, mis, total, acc } = recomputeAccuracy();
+      weightsEl.innerHTML = `<code>w = (${w.x.toFixed(2)}, ${w.y.toFixed(2)})</code>`;
+      normEl.innerHTML = `<code>‖w‖ = ${length(w).toFixed(2)}</code>`;
+      accEl.innerHTML = `<code>Accuracy = ${acc.toFixed(2)}%</code>`;
+      misEl.innerHTML = `<code>Misclassified = ${mis} / ${total}</code>`;
+    }
+
+    // ============================
+    // TRAINING STEP
+    // ============================
+    function findNextMisclassified(startIdx = 0) {
+      const n = data.length;
+      for (let i = 0; i < n; i++) {
+        const idx = (startIdx + i) % n;
+        const pt = data[idx];
+        const pred = classify(pt);
+        if (pred !== pt.label) return idx;
+      }
+      return -1; // none misclassified
+    }
+
+    function trainOnceEnsureFix() {
+      const eta = parseFloat(lrInput.value);
+      b = parseFloat(biasInput.value);
+
+      if (!isFinite(eta) || eta <= 0) {
+        statusEl.innerHTML = `<span style="color:#f87171">Invalid learning rate. Use a positive number (e.g., 0.2).</span>`;
+        return;
+      }
+      if (!isFinite(b)) {
+        statusEl.innerHTML = `<span style="color:#f87171">Invalid bias value.</span>`;
+        return;
+      }
+
+      let idx = findNextMisclassified(activeIndex);
+      if (idx === -1) {
+        statusEl.innerHTML = `All points are perfectly separated 🎉. You can randomize data or reset weights.`;
+        draw();
+        updateMetrics();
+        return;
+      }
+
+      activeIndex = idx;
+      const pt = data[idx];
+      const desired = pt.label;
+
+      // Update until this point is correctly classified (safety capped)
+      let iter = 0;
+      const maxIter = 1000;
+      while (iter < maxIter) {
+        const pred = classify(pt);
+        if (pred === desired) break;
+
+        // Perceptron update (fixed bias): w <- w + eta * y * x
+        w.x += eta * desired * pt.x;
+        w.y += eta * desired * pt.y;
+        iter++;
+      }
+
+      if (iter >= maxIter) {
+        statusEl.innerHTML = `<span style="color:#f87171">Reached iteration cap without classifying the active point. Try a larger η or set b near 0 for this dataset.</span>`;
+      } else {
+        statusEl.innerHTML = `Updated weights to correctly classify the active point in <code>${iter}</code> small step(s).`;
+        activeIndex = (idx + 1) % data.length;
+      }
+
+      draw();
+      updateMetrics();
+    }
+
+    // ============================
+    // INTERACTION
+    // ============================
+    trainBtn.addEventListener('click', trainOnceEnsureFix);
+    resetBtn.addEventListener('click', () => {
+      w = { x: 0, y: 0 };
+      b = parseFloat(biasInput.value) || 0;
+      activeIndex = 0;
+      statusEl.innerHTML = `Reset: weights <code>w = (0.00, 0.00)</code>, fixed bias <code>b = ${b.toFixed(2)}</code>.`;
+      draw();
+      updateMetrics();
+    });
+    randomBtn.addEventListener('click', randomizeData);
+
+    // Add points by clicking: label via a slope separator y = s*x with s between the two class slopes
+    canvas.addEventListener('click', (evt) => {
+      const rect = canvas.getBoundingClientRect();
+      const px = evt.clientX - rect.left;
+      const py = evt.clientY - rect.top;
+      const x = Math.max(0.05, unmapX(px));
+      const y = Math.max(0.05, unmapY(py));
+      const sepSlope = 1.05; // between 0.95 and 1.15
+      const lbl = (y > sepSlope * x) ? +1 : -1;
+      data.push({ x, y, label: lbl });
+      statusEl.innerHTML = `Added point (${x.toFixed(2)}, ${y.toFixed(2)}) with label ${lbl > 0 ? '+1' : '-1'}.`;
+      draw();
+      updateMetrics();
+    });
+
+    // ============================
+    // INIT
+    // ============================
+    (function init() {
+      data = makeDefaultData();
+      b = parseFloat(biasInput.value) || 0;
+      draw();
+      updateMetrics();
+    })();
+  </script>
+</body>
+</html>
