@@ -133,10 +133,10 @@
 </head>
 <body>
   <div class="container">
-    <h1>Animated Rolling Window: Fill <em>null</em> values & Smooth a Time Series</h1>
+    <h1>Animated Rolling Window: Fill <em>null</em> values &amp; Smooth a Time Series</h1>
     <div class="sub">
-      The window (highlighted) moves across the data row and the chart.  
-      Enable <strong>Fill nulls</strong> to replace missing values with a rolling mean (gaps disappear). Optionally apply <strong>Smooth</strong> (rolling mean).
+      The window (highlighted) moves across the data row and the chart.<br/>
+      Enable <strong>Fill nulls</strong> to replace missing values with a rolling mean. Missing points remain empty until the window’s <em>center</em> rolls over them. Optionally apply <strong>Smooth</strong> (rolling mean).
     </div>
 
     <div class="controls">
@@ -194,13 +194,24 @@
 
 <script>
 (function(){
-  // ---------- Demo Data ----------
-  const original = [
-    9, 10, 12, 11, 13, null, 15, null, 17, 16,
-    14, 13, null, 19, 20, 22, 30, 23, 24, null,
-    26, 28, 27, 25, 24, 23, null, 22, 21, 20
-  ];
-  const N = original.length;
+  // ---------- Seasonal Demo Data (3 cycles) ----------
+  const N = 30;
+  const base = 20, amp = 6;
+
+  function wiggle(i){ return 0.8 * Math.sin((2*Math.PI*i)/5); }
+
+  const original = Array.from({length: N}, (_, i) => {
+    const season = base + amp * Math.sin(2 * Math.PI * 3 * (i / N)); // 3 cycles
+    const v = season + wiggle(i);
+    return +v.toFixed(1);
+  });
+
+  // Insert nulls (gaps)
+  [4, 5, 12, 18, 23, 27].forEach(idx => { original[idx] = null; });
+
+  // Add a clear outlier (choose a non-null slot)
+  const outlierIdx = 20;
+  original[outlierIdx] = 52; // noticeably higher than seasonal range (~13..27)
 
   // ---------- Utilities ----------
   const isMissing = (v) => (v == null || Number.isNaN(v));
@@ -360,7 +371,6 @@
   // ---------- Rows ----------
   function renderRow(container, arr, mode) {
     clearNode(container);
-    // Make the grid match N columns
     container.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
     for (let i = 0; i < arr.length; i++) {
       const v = arr[i];
@@ -471,6 +481,13 @@
     curCells[centerIdx].appendChild(badgeC);
   }
 
+  // ---------- Reveal state (center-only) ----------
+  let revealed = new Array(N).fill(false);
+  function markRevealed(centerIdx){
+    // Reveal ONLY the center index to avoid right-shift appearance
+    revealed[centerIdx] = true;
+  }
+
   // ---------- State & Update ----------
   let currentIndex = 0;
   let timer = null;
@@ -479,10 +496,21 @@
 
   function computeCurrentSeries(win, fillEnabled, smoothEnabled) {
     const w = makeOdd(win);
-    let series = original.slice();
-    if (fillEnabled) series = rollingFill(series, w);
-    if (smoothEnabled) series = rollingSmooth(series, w);
-    return series;
+
+    // Compute full transforms
+    const filledFull = fillEnabled ? rollingFill(original.slice(), w) : original.slice();
+    const smoothedFull = smoothEnabled ? rollingSmooth(filledFull, w) : filledFull;
+
+    // Mask: keep missing points empty until center passes them
+    const visible = new Array(N);
+    for (let i = 0; i < N; i++) {
+      let v = smoothedFull[i];
+      if (isMissing(original[i]) && !revealed[i]) {
+        v = null; // still hidden
+      }
+      visible[i] = v;
+    }
+    return visible;
   }
 
   function drawAll(seriesForYScale, seriesOriginal, seriesCurrent) {
@@ -515,7 +543,7 @@
       const isNullCur  = isMissing(vCur);
       if (isNullCur) cls = 'pt-null';
       else if (doSmooth.checked) cls = 'pt-smoothed';
-      else if (doFill.checked && isNullOrig && !isNullCur) cls = 'pt-filled';
+      else if (doFill.checked && isNullOrig) cls = 'pt-filled';
       const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', 5.0);
       c.setAttribute('class', `pt ${cls}`);
@@ -528,6 +556,10 @@
     const w = makeOdd(Number(winInput.value));
     winLabel.textContent = w.toString();
     speedLabel.textContent = `${Number(speedInput.value)} ms`;
+
+    // Mark current center as revealed
+    markRevealed(currentIndex);
+
     const fillEnabled = doFill.checked;
     const smoothEnabled = doSmooth.checked;
 
@@ -549,11 +581,8 @@
   // ---------- Animation controls ----------
   function stepForward() {
     currentIndex = (currentIndex + 1) % N;
-    // We keep chart; only move window highlight/overlay
-    const w = makeOdd(Number(winInput.value));
-    const yScale = makeYScale((doFill.checked || doSmooth.checked) ? currentSeries : original);
-    highlightRows(currentIndex, w, currentSeries);
-    updateWindowOverlay(currentIndex, w, yScale, currentSeries);
+    markRevealed(currentIndex);
+    update(true); // redraw so newly revealed center appears immediately
   }
 
   function start() {
@@ -589,6 +618,7 @@
     doSmooth.checked = false;
     speedInput.value = 500;
     currentIndex = 0;
+    revealed = new Array(N).fill(false); // reset progressive reveal
     update(true);
   });
 
@@ -598,4 +628,3 @@
 </script>
 </body>
 </html>
-
