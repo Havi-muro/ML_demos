@@ -1,0 +1,445 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Curse of Dimensionality — Sparsity Demo (10 points)</title>
+<style>
+  :root{
+    --bg:#0e1320;
+    --panel:#151a2b;
+    --ink:#e6edf3;
+    --accent:#4cc9f0;
+    --accent2:#f72585;
+    --muted:#9aa3b2;
+    --ok:#80ed99;
+    --warn:#ffd166;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial;}
+  .wrap{max-width:1100px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns: 1.2fr 0.8fr;gap:18px;}
+  header{grid-column:1/-1;margin-bottom:4px}
+  h1{font-size:22px;margin:0 0 10px}
+  p{color:var(--muted);margin:6px 0}
+  .panel{background:var(--panel);border-radius:12px;padding:14px;border:1px solid #2a2f44;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+  #viz{width:100%;height:540px;display:block;background:linear-gradient(180deg,#0f1423,#0b0f1c);border-radius:10px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+  button{background:#202642;border:1px solid #303757;color:var(--ink);padding:8px 12px;border-radius:8px;cursor:pointer}
+  button.active{border-color:var(--accent);color:var(--accent)}
+  button:hover{background:#1b2036}
+  .metric{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #2a2f44}
+  .metric:last-child{border-bottom:0}
+  .badge{display:inline-flex;align-items:center;gap:6px;background:#1b2036;border:1px solid #2a2f44;padding:4px 8px;border-radius:999px;color:var(--muted)}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px}
+  .dot1{background:var(--accent)}
+  .dot2{background:var(--accent2)}
+  .dot3{background:#ffd166}
+  .slider-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+  input[type=range]{width:220px}
+  code.small{background:#0f1423;border:1px solid #2a2f44;padding:2px 6px;border-radius:6px;color:#b8c1d1}
+  .note{color:#8ea1c0;font-size:12px}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Visualizing Data Sparsity in Higher Dimensions (10 points)</h1>
+      <p>
+        The same 10 observations occupy a line in 1D, a square in 2D, and a cube in 3D. As dimensionality increases,
+        points get sparser: typical distances grow and a fixed-radius neighborhood covers a smaller fraction of the space.
+      </p>
+    </header>
+
+    <section class="panel">
+      <canvas id="viz" width="760" height="540" aria-label="Visualization canvas"></canvas>
+      <div class="controls">
+        <button id="btn1">1D Line</button>
+        <button id="btn2">2D Square</button>
+        <button id="btn3">3D Cube</button>
+        <button id="btnPlay">Play ▶</button>
+        <span class="badge" id="stageLabel">Current: 1D</span>
+        <span class="badge">Points: 10</span>
+      </div>
+      <div class="legend">
+        <span><span class="dot dot1"></span>Points</span>
+        <span><span class="dot dot2"></span>Nearest neighbor (example)</span>
+        <span><span class="dot dot3"></span>Neighborhood radius (visual aid)</span>
+      </div>
+      <p class="note">Tip: Click Play to animate 1D → 2D → 3D. Use the radius slider to see how coverage falls as dimension grows.</p>
+    </section>
+
+    <aside class="panel">
+      <h3 style="margin-top:2px">Metrics</h3>
+      <div class="metric"><span>Dimension</span><strong id="dimVal">1D</strong></div>
+      <div class="metric"><span>Average nearest-neighbor distance</span><strong id="nndVal">—</strong></div>
+      <div class="metric"><span>Coverage (fraction of space within radius <code class="small">r</code>)</span><strong id="covVal">—</strong></div>
+
+      <div class="slider-row">
+        <label for="rad">Neighborhood radius r</label>
+        <input id="rad" type="range" min="0.03" max="0.35" value="0.18" step="0.01">
+        <span id="radVal">0.18</span>
+      </div>
+
+      <h3 style="margin-top:16px">What to look for</h3>
+      <ul>
+        <li><strong>Distances grow:</strong> Average nearest-neighbor distance increases from 1D → 2D → 3D.</li>
+        <li><strong>Coverage shrinks:</strong> With a fixed radius <em>r</em>, the fraction of the unit space covered by the 10 balls drops sharply as dimension rises.</li>
+        <li><strong>Same data, bigger space:</strong> We keep the same 10 points; only the ambient space expands.</li>
+      </ul>
+    </aside>
+  </div>
+
+<script>
+/* ===== Seeded RNG so the demo is reproducible ===== */
+function mulberry32(a){return function(){let t=a+=0x6D2B79F5;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return ((t^(t>>>14))>>>0)/4294967296;}}
+const rand = mulberry32(42);
+
+/* ===== Generate 10 points in [0,1]^3. We will "reveal" y then z across dimensions. ===== */
+const N = 10;
+const pts = Array.from({length:N},()=>({x:rand(), y:rand(), z:rand()}));
+
+/* ===== Canvas setup ===== */
+const canvas = document.getElementById('viz');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+/* ===== UI elements ===== */
+const btn1 = document.getElementById('btn1');
+const btn2 = document.getElementById('btn2');
+const btn3 = document.getElementById('btn3');
+const btnPlay = document.getElementById('btnPlay');
+const stageLabel = document.getElementById('stageLabel');
+const dimVal = document.getElementById('dimVal');
+const nndVal = document.getElementById('nndVal');
+const covVal = document.getElementById('covVal');
+const rad = document.getElementById('rad');
+const radVal = document.getElementById('radVal');
+
+let currentDim = 1;
+let isPlaying = false;
+let animStart = null;
+let animFromDim = 1;
+let animToDim = 1;
+
+/* ===== Helpers: distances & metrics ===== */
+function euclid(a,b,dim){
+  const dx = a.x - b.x;
+  const dy = (dim>=2)? (a.y - b.y) : 0;
+  const dz = (dim>=3)? (a.z - b.z) : 0;
+  return Math.sqrt(dx*dx + dy*dy + dz*dz);
+}
+
+function meanNND(points, dim){
+  let sum=0;
+  for(let i=0;i<points.length;i++){
+    let m=Infinity;
+    for(let j=0;j<points.length;j++){
+      if(i===j) continue;
+      const d = euclid(points[i], points[j], dim);
+      if(d<m) m=d;
+    }
+    sum+=m;
+  }
+  return sum/points.length;
+}
+
+/* Monte Carlo coverage: fraction of the unit hypercube within radius r
+   of any point (Euclidean). Use modest samples for responsiveness. */
+function coverage(points, dim, r, samples=6000){
+  let covered=0;
+  for(let i=0;i<samples;i++){
+    const q = {x:Math.random(), y:dim>=2?Math.random():0.5, z:dim>=3?Math.random():0.5};
+    let ok=false;
+    for(let p of points){
+      if(euclid(q,p,dim) <= r){ok=true;break;}
+    }
+    if(ok) covered++;
+  }
+  return covered/samples;
+}
+
+/* ===== Projection & drawing ===== */
+
+function project3D(x,y,z){ // x,y,z in [0,1]
+  // Center around 0.5
+  let X = x-0.5, Y = y-0.5, Z = z-0.5;
+  // Rotate for a pleasing view
+  const ax = -0.9, az = 0.7;
+  // Rot Z
+  let X1 =  X*Math.cos(az) - Y*Math.sin(az);
+  let Y1 =  X*Math.sin(az) + Y*Math.cos(az);
+  let Z1 =  Z;
+  // Rot X
+  let Y2 =  Y1*Math.cos(ax) - Z1*Math.sin(ax);
+  let Z2 =  Y1*Math.sin(ax) + Z1*Math.cos(ax);
+
+  const scale = Math.min(W,H)*0.7;
+  const cx = W*0.52, cy = H*0.5;
+  return {x: cx + X1*scale, y: cy + Y2*scale, depth: Z2};
+}
+
+function drawAxis1D(){
+  // Axis area
+  const margin = 60;
+  const y = H*0.5;
+  ctx.strokeStyle = '#44506e';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(margin, y);
+  ctx.lineTo(W - margin, y);
+  ctx.stroke();
+
+  // ticks
+  const ticks = 5;
+  for(let i=0;i<=ticks;i++){
+    const t = i/ticks;
+    const x = margin + t*(W-2*margin);
+    ctx.beginPath(); ctx.moveTo(x, y-6); ctx.lineTo(x, y+6); ctx.stroke();
+  }
+
+  // label
+  ctx.fillStyle = '#9aa3b2';
+  ctx.fillText('1D unit interval [0, 1]', W*0.5 - 60, y + 30);
+}
+
+function drawSquare2D(){
+  const s = Math.min(W,H)*0.7;
+  const x0 = W*0.5 - s/2, y0 = H*0.5 - s/2;
+  ctx.strokeStyle = '#44506e';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x0, y0, s, s);
+  ctx.fillStyle = '#9aa3b2';
+  ctx.fillText('2D unit square [0,1]² (area = 1)', x0, y0 - 10);
+}
+
+function drawCube3D(){
+  // Draw cube edges (8 vertices)
+  const verts = [
+    [0,0,0],[1,0,0],[1,1,0],[0,1,0],
+    [0,0,1],[1,0,1],[1,1,1],[0,1,1]
+  ].map(([x,y,z])=>project3D(x,y,z));
+  const edges = [
+    [0,1],[1,2],[2,3],[3,0], // bottom
+    [4,5],[5,6],[6,7],[7,4], // top
+    [0,4],[1,5],[2,6],[3,7]  // pillars
+  ];
+  ctx.strokeStyle = '#44506e';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for(const [a,b] of edges){
+    ctx.moveTo(verts[a].x, verts[a].y);
+    ctx.lineTo(verts[b].x, verts[b].y);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#9aa3b2';
+  ctx.fillText('3D unit cube [0,1]³ (volume = 1)', 24, 26);
+}
+
+/* Given current and target dimension, produce interpolated point for animation. */
+function interpPoint(p, fromDim, toDim, t){
+  // Start with baseline at fromDim
+  let yFrom = (fromDim>=2)? p.y : 0.5;
+  let zFrom = (fromDim>=3)? p.z : 0.5;
+  let yTo   = (toDim>=2)? p.y : 0.5;
+  let zTo   = (toDim>=3)? p.z : 0.5;
+
+  return { x: p.x, y: yFrom + (yTo - yFrom)*t, z: zFrom + (zTo - zFrom)*t };
+}
+
+function drawNeighborhoodCircle1D(x, r){
+  const margin = 60, y=H*0.5;
+  const xPix = margin + x*(W-2*margin);
+  const rPix = r*(W-2*margin);
+  ctx.fillStyle = 'rgba(255,209,102,0.10)';
+  ctx.strokeStyle = '#ffd166';
+  ctx.beginPath();
+  ctx.rect(xPix - rPix, y-16, 2*rPix, 32);
+  ctx.fill(); ctx.stroke();
+}
+
+function drawNeighborhoodDisk2D(px, py, r){
+  const s = Math.min(W,H)*0.7, x0=W*0.5 - s/2, y0=H*0.5 - s/2;
+  const x = x0 + px*s, y = y0 + py*s, rr = r*s;
+  ctx.fillStyle = 'rgba(255,209,102,0.08)';
+  ctx.strokeStyle = '#ffd166';
+  ctx.beginPath(); ctx.arc(x,y,rr,0,Math.PI*2); ctx.fill(); ctx.stroke();
+}
+
+function drawNeighborhoodSphere3D(p, r){
+  // visualize as projected circle (approx)
+  const c = project3D(p.x,p.y,p.z);
+  const c2 = project3D(Math.min(1,p.x + r), p.y, p.z);
+  const rr = Math.abs(c2.x - c.x);
+  ctx.fillStyle = 'rgba(255,209,102,0.06)';
+  ctx.strokeStyle = '#ffd166';
+  ctx.beginPath(); ctx.arc(c.x,c.y,rr,0,Math.PI*2); ctx.fill(); ctx.stroke();
+}
+
+function drawPoints(dim, t, showNeighborhood=true){
+  // draw an example neighborhood around the first point to aid intuition
+  const r = parseFloat(rad.value);
+  const s = Math.min(W,H)*0.7;
+  const margin = 60;
+  const yAxis = H*0.5;
+
+  const p0 = interpPoint(pts[0], animFromDim, animToDim, t);
+
+  if(dim===1){
+    // Neighborhood (as an interval slab)
+    if(showNeighborhood) drawNeighborhoodCircle1D(p0.x, r);
+
+    // Draw points along axis
+    for(const p of pts){
+      const ip = interpPoint(p, animFromDim, animToDim, t);
+      const x = margin + ip.x*(W-2*margin);
+      ctx.fillStyle = '#4cc9f0';
+      ctx.beginPath(); ctx.arc(x, yAxis, 6, 0, Math.PI*2); ctx.fill();
+    }
+    // Draw one nearest neighbor connection for illustration
+    const ix0 = margin + p0.x*(W-2*margin);
+    // find NN
+    let best=null, bestD=Infinity;
+    for(let j=1;j<pts.length;j++){
+      const pj = interpPoint(pts[j], animFromDim, animToDim, t);
+      const d = Math.abs(pj.x - p0.x);
+      if(d<bestD){bestD=d;best=pj;}
+    }
+    const ix1 = margin + best.x*(W-2*margin);
+    ctx.strokeStyle = '#f72585';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(ix0, yAxis); ctx.lineTo(ix1, yAxis); ctx.stroke();
+  }
+  else if(dim===2){
+    if(showNeighborhood) drawNeighborhoodDisk2D(p0.x, p0.y, r);
+    const x0 = W*0.5 - s/2, y0 = H*0.5 - s/2;
+    for(const p of pts){
+      const ip = interpPoint(p, animFromDim, animToDim, t);
+      ctx.fillStyle = '#4cc9f0';
+      ctx.beginPath();
+      ctx.arc(x0 + ip.x*s, y0 + ip.y*s, 5.5, 0, Math.PI*2);
+      ctx.fill();
+    }
+    // NN line
+    let best=null, bestD=Infinity;
+    for(let j=1;j<pts.length;j++){
+      const pj = interpPoint(pts[j], animFromDim, animToDim, t);
+      const d = Math.hypot(pj.x - p0.x, pj.y - p0.y);
+      if(d<bestD){bestD=d;best=pj;}
+    }
+    ctx.strokeStyle = '#f72585';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x0 + p0.x*s, y0 + p0.y*s);
+    ctx.lineTo(x0 + best.x*s, y0 + best.y*s);
+    ctx.stroke();
+  }
+  else{ // 3D
+    if(showNeighborhood) drawNeighborhoodSphere3D(p0, r);
+    // depth sort by projected Z (simple painter's algorithm)
+    const withProj = pts.map(p=>{
+      const ip = interpPoint(p, animFromDim, animToDim, t);
+      const pr = project3D(ip.x, ip.y, ip.z);
+      return {ip, pr};
+    }).sort((a,b)=>a.pr.depth - b.pr.depth);
+
+    for(const {ip,pr} of withProj){
+      ctx.fillStyle = '#4cc9f0';
+      ctx.beginPath(); ctx.arc(pr.x,pr.y,5,0,Math.PI*2); ctx.fill();
+    }
+    // NN line (in 3D space, projected)
+    let best=null, bestD=Infinity;
+    for(let j=1;j<pts.length;j++){
+      const pj = interpPoint(pts[j], animFromDim, animToDim, t);
+      const d = Math.hypot(pj.x - p0.x, pj.y - p0.y, pj.z - p0.z);
+      if(d<bestD){bestD=d;best=pj;}
+    }
+    const a = project3D(p0.x,p0.y,p0.z);
+    const b = project3D(best.x,best.y,best.z);
+    ctx.strokeStyle = '#f72585';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+  }
+}
+
+/* ===== Main render ===== */
+function render(tFrac=1){
+  ctx.clearRect(0,0,W,H);
+  // Frame background accents
+  ctx.save();
+  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = 'radial-gradient(circle at 30% 30%, rgba(76,201,240,0.05), transparent)';
+  ctx.restore();
+
+  // Guides
+  if(animToDim===1){ drawAxis1D(); }
+  else if(animToDim===2 || (animFromDim===2 && animToDim===3 && tFrac<0.5)){ drawSquare2D(); }
+  else { drawCube3D(); }
+
+  // Points & neighborhoods
+  drawPoints(animToDim, tFrac, true);
+}
+
+/* ===== Metrics update ===== */
+function updateMetrics(dim){
+  const r = parseFloat(rad.value);
+  const nnd = meanNND(pts, dim);
+  const cov = coverage(pts, dim, r, 6000);
+  dimVal.textContent = (dim===1?'1D':'') + (dim===2?'2D':'') + (dim===3?'3D':'');
+  nndVal.textContent = nnd.toFixed(3);
+  covVal.textContent = cov.toFixed(3);
+  stageLabel.textContent = 'Current: ' + (dim===1?'1D':dim===2?'2D':'3D');
+  // Button states
+  [btn1,btn2,btn3].forEach(b=>b.classList.remove('active'));
+  (dim===1?btn1:dim===2?btn2:btn3).classList.add('active');
+}
+
+/* ===== Animation control ===== */
+function goTo(dim){
+  if(dim===currentDim){ updateMetrics(currentDim); render(1); return; }
+  animStart = null;
+  animFromDim = currentDim;
+  animToDim = dim;
+  requestAnimationFrame(step);
+}
+
+function step(ts){
+  if(!animStart) animStart = ts;
+  // 900ms animation
+  const d = Math.min(1, (ts - animStart)/900);
+  render(d);
+  if(d<1){ requestAnimationFrame(step); }
+  else{
+    currentDim = animToDim;
+    updateMetrics(currentDim);
+    if(isPlaying){
+      if(currentDim===1) goTo(2);
+      else if(currentDim===2) goTo(3);
+      else { isPlaying=false; btnPlay.textContent='Play ▶'; }
+    }
+  }
+}
+
+/* ===== UI wiring ===== */
+btn1.onclick = ()=>{ isPlaying=false; btnPlay.textContent='Play ▶'; goTo(1); }
+btn2.onclick = ()=>{ isPlaying=false; btnPlay.textContent='Play ▶'; goTo(2); }
+btn3.onclick = ()=>{ isPlaying=false; btnPlay.textContent='Play ▶'; goTo(3); }
+btnPlay.onclick = ()=>{
+  if(isPlaying){ isPlaying=false; btnPlay.textContent='Play ▶'; return; }
+  isPlaying = true; btnPlay.textContent='Playing…';
+  if(currentDim===3){ currentDim=1; }
+  goTo(currentDim===1?2:currentDim===2?3:1);
+};
+rad.oninput = ()=>{
+  radVal.textContent = parseFloat(rad.value).toFixed(2);
+  updateMetrics(currentDim);
+  render(1);
+};
+
+/* ===== Initial draw ===== */
+radVal.textContent = parseFloat(rad.value).toFixed(2);
+updateMetrics(1);
+render(1);
+</script>
+</body>
+</html>
