@@ -1,0 +1,830 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Hierarchical Clustering Playground — Agglomerative & Divisive + Progressive Dendrogram</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --panel-bg:#f7f7fb; --ink:#222; --muted:#6b7280; --accent:#0ea5e9;
+    --ok:#16a34a; --warn:#f59e0b; --err:#ef4444; --grid:#e5e7eb;
+  }
+  html,body{height:100%; margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,"Helvetica Neue",Arial,"Noto Sans",sans-serif;}
+  #app{
+    height:100%;
+    display:grid;
+    grid-template-columns: 300px 1fr 420px;
+    grid-template-rows: 100%;
+    gap:10px;
+    padding:10px;
+    box-sizing:border-box;
+    background:#fff;
+  }
+  .panel{
+    border:1px solid var(--grid);
+    border-radius:10px;
+    background:var(--panel-bg);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+  .panel h2{
+    font-size:16px; margin:0; padding:10px 12px; background:#fff; border-bottom:1px solid var(--grid);
+  }
+  .panel .content{ padding:10px; overflow:auto; }
+  fieldset{ border:1px solid var(--grid); border-radius:8px; margin:8px 0; }
+  legend{ color:var(--muted); font-size:12px; padding:0 6px; }
+  label{ display:block; margin:6px 0; font-size:14px; }
+  input[type="number"], select{
+    width:100%; box-sizing:border-box; padding:6px 8px; border-radius:6px; border:1px solid var(--grid); background:#fff;
+  }
+  input[type="range"]{ width:100%; }
+  button{
+    cursor:pointer; border:1px solid var(--grid); background:#fff; color:var(--ink);
+    border-radius:8px; padding:8px 10px; margin:4px 2px; font-weight:600;
+  }
+  button.primary{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled{ opacity:.5; cursor:not-allowed; }
+  .row{ display:flex; gap:6px; align-items:center; }
+  .row > *{ flex:1; }
+  small.note{ color:var(--muted); display:block; margin-top:4px; }
+  .canvas-wrap{ flex:1; position:relative; background:#fff; border-top:1px solid var(--grid); }
+  svg{ width:100%; height:100%; display:block; }
+  .hint{ font-size:12px; color:var(--muted); }
+  .legend { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:6px; }
+  .swatch{ width:14px; height:14px; border-radius:3px; border:1px solid #0002; display:inline-block; }
+  .toolbar{ display:flex; flex-wrap:wrap; gap:6px; }
+  .metric-line{ stroke:var(--err); stroke-width:2; stroke-dasharray:6 4; }
+  .kreadout { font-size:12px; color:var(--muted); margin-left:auto; }
+  .status { font-size:12px; color:var(--muted); margin-left:10px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- LEFT: Controls -->
+  <div class="panel">
+    <h2>Controls</h2>
+    <div class="content">
+      <fieldset>
+        <legend>Points</legend>
+        <div class="row">
+          <label>Random points
+            <input type="number" id="numRandom" min="1" max="1000" value="60" />
+          </label>
+          <button id="btnRandom">Add</button>
+        </div>
+        <div class="row">
+          <button id="btnClear">Clear</button>
+          <button id="btnUndo">Undo last</button>
+        </div>
+        <div class="hint">You can also <b>click in the middle plot</b> to add points.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Method</legend>
+        <label>
+          <select id="method">
+            <option value="agglomerative">Agglomerative (bottom-up)</option>
+            <option value="divisive">Divisive (top-down)</option>
+          </select>
+        </label>
+
+        <div id="agglomOptions">
+          <label>Linkage
+            <select id="linkage">
+              <option value="single">Single</option>
+              <option value="average" selected>Average</option>
+              <option value="complete">Complete</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="divisiveOptions" style="display:none">
+          <label>Split heuristic
+            <select id="splitHeuristic">
+              <option value="farthestSeeds" selected>Farthest seeds (2-means style)</option>
+              <option value="maxDiameter">Max-diameter bipartition</option>
+            </select>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Threshold & Animation</legend>
+        <label>Distance threshold <span id="threshVal" style="float:right"></span>
+          <input type="range" id="threshold" min="0" max="1" step="0.005" value="0.25" />
+        </label>
+        <label class="row">
+          <span>Sync colors to animation</span>
+          <input type="checkbox" id="syncColors" checked />
+        </label>
+        <div class="toolbar">
+          <button id="btnBuild" class="primary">Build &amp; Animate</button>
+          <button id="btnPlay">Play</button>
+          <button id="btnPause" disabled>Pause</button>
+          <button id="btnStep">Step</button>
+          <button id="btnReset">Reset</button>
+        </div>
+        <small class="note">Agglomerative merges bottom‑up; Divisive splits top‑down. Both stop <b>before</b> crossing the threshold.</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Utilities</legend>
+        <div class="row">
+          <button id="btnExport">Export PNG</button>
+          <button id="btnCopyJSON">Copy data JSON</button>
+        </div>
+      </fieldset>
+
+      <div class="hint">
+        The red dashed line is the distance threshold.  
+        Try changing it while the animation runs.
+      </div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Scatter -->
+  <div class="panel" id="scatterPanel">
+    <h2 style="display:flex;align-items:center;gap:8px;">
+      Scatter (click to add points)
+      <span id="kreadout" class="kreadout"></span>
+      <span id="status" class="status"></span>
+    </h2>
+    <div class="canvas-wrap">
+      <svg id="scatter"></svg>
+    </div>
+    <div class="content">
+      <div class="legend" id="legend"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Dendrogram -->
+  <div class="panel">
+    <h2>Dendrogram</h2>
+    <div class="canvas-wrap">
+      <svg id="dendro"></svg>
+    </div>
+    <div class="content">
+      <div class="hint">
+        Agglomerative grows upward; Divisive shows a trunk and then splits downward.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================
+   Utility & Globals
+   ========================= */
+const $ = sel => document.querySelector(sel);
+const scatterSVG = $('#scatter');
+const dendroSVG  = $('#dendro');
+const legendEl   = $('#legend');
+const methodSel  = $('#method');
+const agglomBox  = $('#agglomOptions');
+const divisiveBox= $('#divisiveOptions');
+const linkageSel = $('#linkage');
+const splitHeur  = $('#splitHeuristic');
+const threshold  = $('#threshold');
+const threshVal  = $('#threshVal');
+const syncColors = $('#syncColors');
+const kreadoutEl = $('#kreadout');
+const statusEl   = $('#status');
+
+let Ws=0,Hs=0, Wd=0,Hd=0;
+function updateSizes(){
+  Ws = scatterSVG.clientWidth; Hs = scatterSVG.clientHeight;
+  Wd = dendroSVG.clientWidth;  Hd = dendroSVG.clientHeight;
+}
+window.addEventListener('resize', ()=>{ updateSizes(); drawAll(); });
+
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+function fmt3(v){ return (Math.round(v*1000)/1000).toFixed(3); }
+function palette(n){
+  const base = [
+    "#2563eb","#f97316","#22c55e","#e11d48","#06b6d4","#a855f7",
+    "#84cc16","#f43f5e","#0ea5e9","#f59e0b","#10b981","#8b5cf6"
+  ];
+  const out=[]; for(let i=0;i<n;i++) out.push(base[i%base.length]); return out;
+}
+
+/* =========================
+   State
+   ========================= */
+let points = [];             // [{id,x:[0..1],y:[0..1]}]
+let undoStack = [];
+let animationTimer = null;
+let built = null;            // { mode, root, fullSteps[], revealedSteps, appliedHeight, maxHeight, leaves }
+let colorMap = new Map();    // point.id -> color
+
+// Agglomerative coloring state
+let clusterColorAgg = new Map(); // node.id -> color
+let nextColorIndexAgg = 0;
+
+// Divisive coloring state
+let clusterColorDiv = new Map(); // node.id -> color of that cluster region
+let nextColorIndexDiv = 0;
+
+/* =========================
+   UI handlers
+   ========================= */
+$('#btnRandom').addEventListener('click', ()=>{
+  const n = Math.max(1, Math.min(1000, +$('#numRandom').value||0));
+  addRandomPoints(n);
+});
+$('#btnClear').addEventListener('click', ()=>{
+  points=[]; undoStack=[]; resetBuild();
+  threshold.min = 0; threshold.max = 1; threshold.step = 0.005; threshold.value = 0.25;
+  threshVal.textContent = (+threshold.value).toFixed(3);
+  drawAll();
+});
+$('#btnUndo').addEventListener('click', ()=>{
+  if(points.length){
+    undoStack.push(points.pop());
+    resetBuild(); drawAll();
+  }
+});
+
+methodSel.addEventListener('change', ()=>{
+  const m = methodSel.value;
+  agglomBox.style.display = (m==='agglomerative')?'block':'none';
+  divisiveBox.style.display= (m==='divisive')?'block':'none';
+  resetBuild(); drawAll();
+});
+
+// Threshold display and recolor
+threshold.addEventListener('input', ()=>{
+  if(built){
+    const abs = +threshold.value;
+    const pct = (abs / (built.maxHeight||1)) * 100;
+    threshVal.textContent = `${fmt3(abs)} (${fmt3(pct)}% of max)`;
+    if(built.mode==='agglomerative') {
+      recomputeAggloColors();
+    } else {
+      recomputeDivColors();
+    }
+  }else{
+    threshVal.textContent = (+threshold.value).toFixed(3);
+  }
+  drawAll();
+});
+
+$('#btnBuild').addEventListener('click', ()=> buildAndAnimate());
+$('#btnPlay').addEventListener('click', ()=> startAnimation());
+$('#btnPause').addEventListener('click', ()=> stopAnimation());
+$('#btnStep').addEventListener('click', ()=> stepAnimation());
+$('#btnReset').addEventListener('click', ()=>{ resetBuild(); drawAll(); });
+
+$('#btnExport').addEventListener('click', ()=> exportPNG());
+$('#btnCopyJSON').addEventListener('click', ()=>{
+  navigator.clipboard.writeText(JSON.stringify(points)).then(()=>{});
+});
+
+threshVal.textContent = (+threshold.value).toFixed(3);
+
+/* =========================
+   Scatter interactions
+   ========================= */
+scatterSVG.addEventListener('pointerdown', (e)=>{
+  const r = scatterSVG.getBoundingClientRect();
+  const x = (e.clientX - r.left)/r.width;
+  const y = (e.clientY - r.top)/r.height;
+  points.push({ id: newId(), x: Math.max(0,Math.min(1,x)), y: Math.max(0,Math.min(1,y)) });
+  resetBuild(); drawAll();
+});
+
+function newId(){ return (Math.random().toString(36).slice(2))+Date.now().toString(36).slice(-4); }
+function addRandomPoints(n){ for(let i=0;i<n;i++) points.push({ id:newId(), x: Math.random(), y: Math.random() }); resetBuild(); drawAll(); }
+
+/* =========================
+   Build & Animate
+   ========================= */
+function resetBuild(){
+  built = null;
+  stopAnimation();
+  $('#btnPause').disabled = true;
+  $('#btnPlay').disabled  = false;
+
+  colorMap.clear();
+  for(const p of points) colorMap.set(p.id, '#111'); // all black
+
+  clusterColorAgg.clear(); nextColorIndexAgg=0;
+  clusterColorDiv.clear(); nextColorIndexDiv=0;
+
+  kreadoutEl.textContent = '';
+  statusEl.textContent = '';
+}
+
+function buildAndAnimate(){
+  if(points.length<2){ alert("Add at least two points."); return; }
+  stopAnimation();
+  built = (methodSel.value==='agglomerative')
+    ? buildAgglomerative(points, linkageSel.value)
+    : buildDivisive(points, splitHeur.value);
+  built.revealedSteps = 0;
+  built.appliedHeight = 0;
+
+  calibrateThresholdAfterBuild(true);
+
+  // reset colors to black at start
+  for(const p of points) colorMap.set(p.id, '#111');
+  if(built.mode==='divisive'){
+    // assign an initial base color to the whole root cluster (optional but helps visibility)
+    clusterColorDiv.set(built.root.id, '#111'); // root starts black
+    recomputeDivColors(); // color by current threshold (no splits yet)
+  }
+  drawAll();
+  startAnimation();
+}
+
+function calibrateThresholdAfterBuild(preserve=true){
+  if(!built) return;
+  const maxH = built.maxHeight || 1e-6;
+  threshold.min = 0;
+  threshold.max = fmt3(maxH);
+  threshold.step = fmt3(maxH / 200);
+
+  const cur = parseFloat(threshold.value);
+  const valid = !Number.isNaN(cur) && cur>=0 && cur<=maxH;
+  if(!(preserve && valid)){
+    threshold.value = fmt3(0.25 * maxH); // set only if current invalid/out of range
+  }
+  const abs = +threshold.value;
+  const pct = (abs / maxH) * 100;
+  threshVal.textContent = `${fmt3(abs)} (${fmt3(pct)}% of max)`;
+}
+
+function startAnimation(){
+  if(!built) return;
+  $('#btnPlay').disabled = true;
+  $('#btnPause').disabled = false;
+  if(animationTimer) return;
+  animationTimer = setInterval(()=>{
+    if(!stepAnimation()){
+      stopAnimation();
+      if(built.mode==='agglomerative') recomputeAggloColors();
+      else recomputeDivColors();
+      drawAll();
+    }
+  }, 600);
+}
+function stopAnimation(){
+  if(animationTimer){ clearInterval(animationTimer); animationTimer=null; }
+  $('#btnPlay').disabled = false;
+  $('#btnPause').disabled = true;
+}
+
+/* ========== Threshold-aware step with dynamic colors ========== */
+function stepAnimation(){
+  if(!built) return false;
+  if(built.revealedSteps >= built.fullSteps.length) return false;
+
+  const t = parseFloat(threshold.value);
+  const step = built.fullSteps[built.revealedSteps];
+
+  // Stop BEFORE crossing threshold
+  const allow =
+    (built.mode==='agglomerative') ? (step.height <= t)
+                                   : (step.height >  t); // divisive reveals large->small
+
+  if(!allow){
+    statusEl.textContent = `Stopped at threshold (next ${built.mode==='agglomerative'?'merge':'split'} h=${fmt3(step.height)}).`;
+    return false;
+  }
+
+  built.revealedSteps++;
+  built.appliedHeight = step.height;
+
+  if(built.mode==='agglomerative'){
+    applyAggloMergeColor(step);
+    if(syncColors.checked) recomputeAggloColors();
+  }else{
+    applyDivSplitColor(step);
+    if(syncColors.checked) recomputeDivColors();
+  }
+
+  statusEl.textContent =
+    (built.mode==='agglomerative')
+      ? `Step ${built.revealedSteps}/${built.fullSteps.length}: merge @ h=${fmt3(step.height)}`
+      : `Step ${built.revealedSteps}/${built.fullSteps.length}: split @ h=${fmt3(step.height)}`;
+
+  drawAll();
+  return built.revealedSteps < built.fullSteps.length;
+}
+
+/* =========================
+   Agglomerative clustering & coloring
+   ========================= */
+function buildAgglomerative(pts, linkage='average'){
+  const leaves = pts.map(p => ({ type:'leaf', id:'L_'+p.id, height:0, left:null, right:null, leaves:[p], point:p }));
+  let clusters = leaves.slice();
+  const steps = [];
+
+  // Precompute pairwise distances
+  const pd = new Map();
+  for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){
+    pd.set(key2(pts[i].id, pts[j].id), dist(pts[i], pts[j]));
+  }
+  function pDist(a,b){ return pd.get(key2(a.id,b.id)) || 0; }
+
+  function clusterDistance(A,B){
+    if(linkage==='single'){
+      let m=Infinity; for(const a of A.leaves) for(const b of B.leaves){ const d=pDist(a,b); if(d<m) m=d; } return m;
+    }else if(linkage==='complete'){
+      let m=0; for(const a of A.leaves) for(const b of B.leaves){ const d=pDist(a,b); if(d>m) m=d; } return m;
+    }else{ // average
+      let s=0,c=0; for(const a of A.leaves) for(const b of B.leaves){ s+=pDist(a,b); c++; } return s/c;
+    }
+  }
+
+  while(clusters.length>1){
+    let bi=-1, bj=-1, bd=Infinity;
+    for(let i=0;i<clusters.length;i++){
+      for(let j=i+1;j<clusters.length;j++){
+        const d = clusterDistance(clusters[i], clusters[j]);
+        if(d<bd){ bd=d; bi=i; bj=j; }
+      }
+    }
+    const A=clusters[bi], B=clusters[bj];
+    const M={ type:'merge', id:'N_'+newId(), height:bd, left:A, right:B, point:null, leaves:[...A.leaves,...B.leaves] };
+    steps.push({ type:'merge', left:A, right:B, node:M, height:bd });
+    clusters.splice(bj,1); clusters.splice(bi,1); clusters.push(M);
+  }
+  const root = clusters[0];
+  const maxH = steps.length? Math.max(...steps.map(s=>s.height)) : 1;
+  return { mode:'agglomerative', root, fullSteps: steps, revealedSteps:0, appliedHeight:0, maxHeight:maxH, leaves };
+}
+
+function key2(a,b){ return (a<b)? (a+'|'+b): (b+'|'+a); }
+
+function applyAggloMergeColor(step){
+  const leftNode  = step.left;
+  const rightNode = step.right;
+  const newNode   = step.node;
+
+  const colL = clusterColorAgg.get(leftNode.id)  || colorOfLeaves(leftNode);
+  const colR = clusterColorAgg.get(rightNode.id) || colorOfLeaves(rightNode);
+
+  let winner = null;
+  if(colL && colL !== '#111') winner = colL;
+  if(!winner && colR && colR !== '#111') winner = colR;
+  if(!winner) winner = nextPaletteColorAgg(); // both were uncolored → new color
+
+  // assign this color to the new node and recolor its leaves
+  clusterColorAgg.set(newNode.id, winner);
+  for(const p of newNode.leaves){ colorMap.set(p.id, winner); }
+}
+function colorOfLeaves(node){
+  const colors = new Set(node.leaves.map(p => colorMap.get(p.id)));
+  if(colors.size===1){
+    const c = [...colors][0];
+    return c;
+  }
+  return null;
+}
+function nextPaletteColorAgg(){
+  const cols = palette(100);
+  return cols[(nextColorIndexAgg++) % cols.length];
+}
+function recomputeAggloColors(){
+  if(!built || built.mode!=='agglomerative') return;
+  const allowed = Math.min(built.appliedHeight||0, parseFloat(threshold.value)||0);
+
+  clusterColorAgg.clear(); nextColorIndexAgg=0;
+  for(const p of points) colorMap.set(p.id, '#111');
+
+  for(const s of built.fullSteps){
+    if(s.height <= allowed){
+      applyAggloMergeColor(s);
+    } else {
+      break;
+    }
+  }
+  kreadoutEl.textContent = `k = ${countColors()}`;
+}
+
+/* =========================
+   Divisive clustering & coloring
+   ========================= */
+function buildDivisive(pts, heuristic='farthestSeeds'){
+  const root = { type:'node', id:'R_'+newId(), height:0, left:null, right:null, leaves:[...pts] };
+  const steps = [];
+  const queue=[root];
+  let maxH=0;
+
+  while(queue.length){
+    const C = queue.shift();
+    if(C.leaves.length<=1) continue;
+
+    let split=null;
+    if(heuristic==='farthestSeeds') split = splitByFarthestSeeds(C.leaves);
+    else split = splitByMaxDiameter(C.leaves);
+
+    if(!split || split.left.length===0 || split.right.length===0) continue;
+
+    const h = split.height;
+    maxH = Math.max(maxH,h);
+
+    C.type='split'; C.height=h;
+    C.left  = { type:'node', id:'N_'+newId(), height:0, left:null, right:null, leaves:split.left };
+    C.right = { type:'node', id:'N_'+newId(), height:0, left:null, right:null, leaves:split.right };
+    steps.push({ type:'split', parent:C, left:C.left, right:C.right, height:h });
+
+    queue.push(C.left, C.right);
+  }
+
+  // IMPORTANT: set the root's height to maxH so the trunk appears immediately
+  root.height = Math.max(maxH, 1e-6);
+  // show the largest splits first
+  steps.sort((a,b)=> b.height - a.height);
+  return { mode:'divisive', root, fullSteps: steps, revealedSteps:0, appliedHeight:0, maxHeight: root.height };
+}
+
+function centroid(arr){ let sx=0,sy=0; for(const p of arr){ sx+=p.x; sy+=p.y; } return { x:sx/arr.length, y:sy/arr.length }; }
+function splitByFarthestSeeds(arr){
+  if(arr.length<2) return null;
+  let a=0,b=1,best=0;
+  for(let i=0;i<arr.length;i++) for(let j=i+1;j<arr.length;j++){ const d=dist(arr[i],arr[j]); if(d>best){ best=d; a=i; b=j; } }
+  const seedA=arr[a], seedB=arr[b];
+  const left=[], right=[];
+  for(const p of arr){ (dist(p,seedA) <= dist(p,seedB) ? left : right).push(p); }
+  const h = dist(centroid(left), centroid(right));
+  return { left, right, height:h };
+}
+function splitByMaxDiameter(arr){
+  if(arr.length<2) return null;
+  let idx=0,best=-1;
+  for(let i=0;i<arr.length;i++){
+    let s=0; for(let j=0;j<arr.length;j++) if(i!==j) s += dist(arr[i],arr[j]);
+    const avg=s/(arr.length-1); if(avg>best){ best=avg; idx=i; }
+  }
+  const pivot=arr[idx]; const left=[pivot], right=[];
+  for(let i=0;i<arr.length;i++){ if(i!==idx) right.push(arr[i]); }
+  const h = dist(centroid(left), centroid(right));
+  return { left, right, height:h };
+}
+
+// Dynamic split coloring: the "peeled" child gets a new color; the other keeps parent's color
+function applyDivSplitColor(step){
+  const parent = step.parent;
+  const left   = step.left;
+  const right  = step.right;
+
+  // parent's current color (default black)
+  const parentColor = clusterColorDiv.get(parent.id) || '#111';
+
+  // Decide peeled child — choose the smaller child for visibility
+  const peeled = (left.leaves.length <= right.leaves.length) ? left : right;
+  const stay   = (peeled === left) ? right : left;
+
+  // Stay child inherits the parent's color
+  clusterColorDiv.set(stay.id, parentColor);
+  for(const p of stay.leaves) colorMap.set(p.id, parentColor);
+
+  // Peeled child gets a new palette color (if parent was black, we still peel with a color)
+  const newCol = nextPaletteColorDiv();
+  clusterColorDiv.set(peeled.id, newCol);
+  for(const p of peeled.leaves) colorMap.set(p.id, newCol);
+}
+function nextPaletteColorDiv(){
+  const cols = palette(100);
+  return cols[(nextColorIndexDiv++) % cols.length];
+}
+
+// Recompute divisive colors up to min(revealed, threshold) frontier
+function recomputeDivColors(){
+  if(!built || built.mode!=='divisive') return;
+  const t = parseFloat(threshold.value)||0;
+
+  clusterColorDiv.clear(); nextColorIndexDiv=0;
+  for(const p of points) colorMap.set(p.id, '#111');
+
+  // The sequence is from largest splits downward. Only apply splits with height > t (strictly).
+  for(const s of built.fullSteps){
+    if(s.height > t && built.fullSteps.indexOf(s) < built.revealedSteps){
+      // ensure parent has a color (default black) in the map
+      if(!clusterColorDiv.has(s.parent.id)) clusterColorDiv.set(s.parent.id, '#111');
+      applyDivSplitColor(s);
+    } else {
+      // either not revealed yet or already at/below threshold — stop applying further splits
+      continue;
+    }
+  }
+
+  // Compute k via threshold cut
+  const parts = cutDivisive(built.root, t);
+  kreadoutEl.textContent = `k = ${parts.length}`;
+}
+function cutDivisive(node, t){
+  if(!node) return [];
+  if(!node.left && !node.right) return [node.leaves];
+  if(node.height <= t) return [node.leaves];
+  return [...cutDivisive(node.left, t), ...cutDivisive(node.right, t)];
+}
+
+/* =========================
+   Drawing (progressive)
+   ========================= */
+function drawAll(){
+  updateSizes();
+  drawScatter();
+  drawDendrogram();
+}
+
+function drawScatter(){
+  const svg = scatterSVG; while(svg.firstChild) svg.removeChild(svg.firstChild);
+  for(const p of points){
+    const cx = p.x*Ws, cy = p.y*Hs;
+    const c = colorMap.get(p.id) || '#111';
+    const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    dot.setAttribute('cx', cx); dot.setAttribute('cy', cy);
+    dot.setAttribute('r', 4.5); dot.setAttribute('fill', c);
+    dot.setAttribute('stroke', '#0005'); dot.setAttribute('stroke-width', 0.5);
+    svg.appendChild(dot);
+  }
+  // Legend (cluster sizes)
+  legendEl.innerHTML='';
+  const byColor = new Map();
+  for(const p of points){
+    const c = colorMap.get(p.id) || '#111';
+    byColor.set(c, (byColor.get(c)||0)+1);
+  }
+  for(const [c,count] of byColor.entries()){
+    const wrap = document.createElement('span');
+    const w = document.createElement('span'); w.className='swatch'; w.style.background=c;
+    const t = document.createElement('span'); t.textContent = ` ${count}`;
+    wrap.appendChild(w); wrap.appendChild(t);
+    legendEl.appendChild(wrap);
+  }
+}
+
+function line(x1,y1,x2,y2, stroke='#0008', width=1.2){
+  const L = document.createElementNS('http://www.w3.org/2000/svg','line');
+  L.setAttribute('x1',x1); L.setAttribute('y1',y1);
+  L.setAttribute('x2',x2); L.setAttribute('y2',y2);
+  L.setAttribute('stroke',stroke); L.setAttribute('stroke-width',width);
+  return L;
+}
+function varGet(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#ef4444';
+}
+function getLeaves(node){
+  if(!node) return [];
+  if(node.type==='leaf') return [node.point];
+  if(!node.left && !node.right) return node.leaves;
+  return [...getLeaves(node.left||null), ...getLeaves(node.right||null)];
+}
+
+// Agglomerative progressive drawing
+function agglomX(node, X){
+  if(node.type==='leaf') return X.get(node.point.id);
+  const xl = agglomX(node.left, X), xr = agglomX(node.right, X);
+  return (xl + xr)/2;
+}
+function drawAggNodeProgressive(svg, node, X, yScale, revealHeight){
+  if(!node) return;
+  if(node.type==='leaf'){
+    const x = X.get(node.point.id), y = yScale(0);
+    svg.appendChild(line(x, y, x, y+6, '#0003', 1));
+    return;
+  }
+  drawAggNodeProgressive(svg, node.left, X, yScale, revealHeight);
+  drawAggNodeProgressive(svg, node.right, X, yScale, revealHeight);
+
+  if(node.height <= revealHeight){
+    const xl = agglomX(node.left, X), xr = agglomX(node.right, X);
+    const yl = yScale(node.left.height || 0), yr = yScale(node.right.height || 0);
+    const yn = yScale(node.height);
+    svg.appendChild(line(xl, yl, xl, yn, '#0008', 1));
+    svg.appendChild(line(xr, yr, xr, yn, '#0008', 1));
+    svg.appendChild(line(xl, yn, xr, yn, '#0008', 1.5));
+  }
+}
+
+// Divisive progressive drawing
+function divX(node, X){
+  const leaves = getLeaves(node);
+  const xs = leaves.map(p => X.get(p.id));
+  const s = xs.reduce((a,b)=>a+b,0);
+  return s/xs.length;
+}
+function drawDivNodeProgressive(svg, node, X, yScale, revealedSet){
+  if(!node) return;
+
+  // Always draw the "trunk" for any node (so the dendrogram appears immediately)
+  const xNode = divX(node, X);
+  const yTop  = yScale(node.height||0);
+  const yBot  = yScale(0);
+  svg.appendChild(line(xNode, yTop, xNode, yBot, '#0002', 1)); // faint trunk
+
+  if(!(node.left && node.right && revealedSet.has(node.id))){
+    // Not revealed yet => only leaf ticks (no split lines)
+    const leaves = getLeaves(node);
+    for(const p of leaves){
+      const xx = X.get(p.id);
+      svg.appendChild(line(xx, yBot-6, xx, yBot, '#0003', 1));
+    }
+    return;
+  }
+
+  // Node is revealed as split → draw the split connections and recurse
+  const xl = divX(node.left, X), xr = divX(node.right, X);
+  const yl = yScale(node.left.height||0), yr = yScale(node.right.height||0);
+
+  svg.appendChild(line(xl, yTop, xl, yl, '#0008', 1));
+  svg.appendChild(line(xr, yTop, xr, yr, '#0008', 1));
+  svg.appendChild(line(xl, yl, xr, yl, '#0008', 1.5));
+
+  drawDivNodeProgressive(svg, node.left, X, yScale, revealedSet);
+  drawDivNodeProgressive(svg, node.right, X, yScale, revealedSet);
+}
+
+function drawDendrogram(){
+  const svg = dendroSVG; while(svg.firstChild) svg.removeChild(svg.firstChild);
+  if(!built) return;
+
+  const leaves = getLeaves(built.root).slice().sort((a,b)=> a.id.localeCompare(b.id));
+  const X = new Map();
+  const margin = 30, innerW = Wd - 2*margin, innerH = Hd - 24;
+  const dx = (innerW) / Math.max(1, leaves.length-1);
+  leaves.forEach((p, i)=> X.set(p.id, margin + i*dx));
+
+  const maxH = built.maxHeight || 1e-6;
+  const yAgg = h => innerH - (h/maxH)*innerH + 12;   // up
+  const yDiv = h => (h/maxH)*innerH + 12;            // down
+
+  const revealCount = built.revealedSteps;
+  const revealHeightAgg = (revealCount>0 && built.mode==='agglomerative')
+    ? built.fullSteps[revealCount-1].height
+    : 0;
+  const revealedSetDiv = new Set(
+    (built.mode==='divisive')
+      ? built.fullSteps.slice(0,revealCount).map(s=> s.parent.id)
+      : []
+  );
+
+  if(built.mode==='agglomerative'){
+    drawAggNodeProgressive(svg, built.root, X, yAgg, revealHeightAgg);
+    const y = yAgg(parseFloat(threshold.value));
+    const L = line(0, y, Wd, y, varGet('--err'), 2); L.setAttribute('stroke-dasharray','6 4'); svg.appendChild(L);
+  } else {
+    drawDivNodeProgressive(svg, built.root, X, yDiv, revealedSetDiv);
+    const y = yDiv(parseFloat(threshold.value));
+    const L = line(0, y, Wd, y, varGet('--err'), 2); L.setAttribute('stroke-dasharray','6 4'); svg.appendChild(L);
+  }
+}
+
+/* =========================
+   Helpers
+   ========================= */
+function countColors(){
+  const set = new Set(points.map(p => colorMap.get(p.id)));
+  return set.size;
+}
+
+/* =========================
+   Export (PNG)
+   ========================= */
+function exportPNG(){
+  const scale = 2;
+  const w = document.body.clientWidth, h = document.body.clientHeight;
+  const canvas = document.createElement('canvas');
+  canvas.width = w*scale; canvas.height=h*scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+
+  const svgs = [scatterSVG, dendroSVG];
+  const promises = svgs.map((svg)=>{
+    const s = new XMLSerializer().serializeToString(svg);
+    const img = new Image();
+    const blob = new Blob([s], {type:'image/svg+xml;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    return new Promise(res=>{
+      img.onload=()=>{ 
+        const rect = svg.getBoundingClientRect();
+        ctx.drawImage(img, rect.left, rect.top, rect.width, rect.height);
+        URL.revokeObjectURL(url);
+        res();
+      };
+      img.src=url;
+    });
+  });
+  Promise.all(promises).then(()=>{
+    const a = document.createElement('a');
+    a.download='clustering.png';
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  });
+}
+
+/* =========================
+   Init
+   ========================= */
+updateSizes();
+resetBuild();
+addRandomPoints(60);
+drawAll();
+</script>
+</body>
+</html>
