@@ -2,145 +2,150 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Perceptron Learning Rule — Upper-Right Quadrant (Perfectly Separable)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    :root {
-      --bg: #0f172a;
-      --panel: #0b1220;
-      --accent: #22c55e;
-      --accent2: #3b82f6;
-      --accent3: #f59e0b;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --danger: #ef4444;
-    }
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Ubuntu, Cantarell, "Noto Sans";
-      background: linear-gradient(135deg, #0b1024 0%, #0f172a 100%);
-      color: var(--text);
-    }
-    header {
-      padding: 20px 24px;
-      border-bottom: 1px solid #1f2937;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    header h1 { margin: 0; font-size: 20px; font-weight: 700; }
-    .container {
-      display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 20px;
-      padding: 20px;
-    }
-    .panel {
-      background: var(--panel);
-      border: 1px solid #1f2937;
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-    }
-    .panel h2 { margin: 0 0 12px; font-size: 16px; font-weight: 700; }
+<meta charset="UTF-8" />
+<title>Perceptron — Random Sampling, Learn Weights and Bias</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #0b1220;
+    --accent: #22c55e;
+    --accent2: #3b82f6;
+    --accent3: #f59e0b;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --danger: #ef4444;
+  }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Ubuntu, Cantarell, "Noto Sans";
+    background: linear-gradient(135deg, #0b1024 0%, #0f172a 100%);
+    color: var(--text);
+  }
+  header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #1f2937;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 700; }
 
-    .intro {
-      margin: 16px 20px 0;
-      background: #0b1024;
-      border: 1px solid #1f2937;
-      border-radius: 12px;
-      padding: 14px 16px;
-      line-height: 1.55;
-      color: #cbd5e1;
-    }
-    .intro strong { color: #e2e8f0; }
-    .intro code { color: #c7f9cc; }
+  .intro {
+    margin: 16px 20px 0;
+    background: #0b1024;
+    border: 1px solid #1f2937;
+    border-radius: 12px;
+    padding: 14px 16px;
+    line-height: 1.55;
+    color: #cbd5e1;
+  }
+  .intro strong { color: #e2e8f0; }
+  .intro code { color: #c7f9cc; }
 
-    .controls {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-    .control { display: flex; flex-direction: column; gap: 6px; }
-    .control label { font-size: 13px; color: var(--muted); }
-    .control input[type="number"] {
-      background: #0b1024;
-      border: 1px solid #1f2937;
-      color: var(--text);
-      padding: 8px 10px;
-      border-radius: 8px;
-      font-size: 14px;
-    }
-    .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-    button {
-      appearance: none;
-      border: 1px solid #1f2937;
-      background: #0b1024;
-      color: var(--text);
-      padding: 10px 12px;
-      border-radius: 10px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 150ms ease;
-    }
-    button:hover { transform: translateY(-1px); }
-    button#trainBtn { border-color: var(--accent); color: #10b981; }
-    button#resetBtn { border-color: var(--danger); color: #f87171; }
-    button#randomBtn { border-color: var(--accent2); color: #60a5fa; }
-    .status { font-size: 13px; color: var(--muted); line-height: 1.5; }
-    .metrics {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-top: 8px;
-    }
-    .metric { background: #0b1024; border: 1px solid #1f2937; border-radius: 10px; padding: 10px; }
-    .metric code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
-      font-size: 13px;
-    }
-    canvas {
-      width: 100%;
-      height: 520px;
-      background: radial-gradient(ellipse at center, #0b1220 0%, #0a0e1a 60%, #090d18 100%);
-      border: 1px solid #1f2937;
-      border-radius: 12px;
-    }
-    .legend { display: flex; gap: 14px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--muted); }
-    .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-    .dot.blue { background: var(--accent2); }
-    .dot.orange { background: var(--accent3); }
-    .dot.white { background: #e5e7eb; }
-    .note { margin-top: 10px; font-size: 12px; color: #94a3b8; }
-    @media (max-width: 960px) { .container { grid-template-columns: 1fr; } canvas { height: 400px; } }
-  </style>
+  .container {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 20px;
+    padding: 20px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid #1f2937;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  }
+  .panel h2 { margin: 0 0 12px; font-size: 16px; font-weight: 700; }
+
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .control { display: flex; flex-direction: column; gap: 6px; }
+  .control label { font-size: 13px; color: var(--muted); }
+  .control input[type="number"] {
+    background: #0b1024;
+    border: 1px solid #1f2937;
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  button {
+    appearance: none;
+    border: 1px solid #1f2937;
+    background: #0b1024;
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+  button:hover { transform: translateY(-1px); }
+  #runBtn { border-color: var(--accent); color: #10b981; }
+  #resetBtn { border-color: var(--danger); color: #f87171; }
+  #randomBtn { border-color: var(--accent2); color: #60a5fa; }
+
+  .status { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .metric { background: #0b1024; border: 1px solid #1f2937; border-radius: 10px; padding: 10px; }
+  .metric code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+    font-size: 13px;
+  }
+
+  canvas {
+    width: 100%;
+    height: 520px;
+    background: radial-gradient(ellipse at center, #0b1220 0%, #0a0e1a 60%, #090d18 100%);
+    border: 1px solid #1f2937;
+    border-radius: 12px;
+  }
+  .legend { display: flex; gap: 14px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .dot.blue { background: var(--accent2); }
+  .dot.orange { background: var(--accent3); }
+  .dot.white { background: #e5e7eb; }
+
+  #epochLog {
+    max-height: 220px; overflow-y: auto; border: 1px solid #1f2937; padding: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: #0b1024; width: 100%; border-radius: 8px;
+    margin-top: 10px;
+  }
+  .logline { white-space: pre; margin: 2px 0; }
+  .muted { color: #94a3b8; }
+
+  @media (max-width: 960px) { .container { grid-template-columns: 1fr; } canvas { height: 400px; } }
+</style>
 </head>
 <body>
   <header>
-    <h1>Perceptron Learning Rule — Upper-Right Quadrant (Perfectly Separable)</h1>
-    <div style="font-size:13px;color:#94a3b8;">Two close clusters in positive x,y with a guaranteed linear separator (try bias b = 0).</div>
+    <h1>Perceptron — Random Sampling (Learn Weights & Bias)</h1>
+    <div style="font-size:13px;color:#94a3b8;">Sampling is <strong>random</strong> each step. Updates occur <em>only</em> on mistakes.</div>
   </header>
 
-  <!-- Short intro: what to do & what you'll learn -->
   <div class="intro">
-    <strong>How to use this demo</strong>
-    <ol style="margin: 8px 0 0 18px;">
-      <li>Set the <em>learning rate</em> (η) and the fixed <em>bias</em> (b). For this dataset, <code>b = 0</code> works well.</li>
-      <li>Click <strong>Train</strong>. Each click finds one misclassified point and updates the weights
-          <code>w &larr; w + η · y · x</code> repeatedly (small internal steps) until that point is correctly classified.</li>
-      <li>Repeat until the status shows that all points are perfectly separated.</li>
-    </ol>
-    <div style="height:8px"></div>
-    <strong>What you’ll observe/learn</strong>
+    <strong>Update rule (labels ±1):</strong>
+    <code>w ← w + η · y · x</code>, <code>b ← b + η_b · y</code> &nbsp;(applied only if misclassified).
     <ul style="margin: 6px 0 0 18px;">
-      <li>The dashed decision boundary <code>w<sub>x</sub>x + w<sub>y</sub>y + b = 0</code> rotates as <code>w</code> changes.</li>
-      <li>The green weight vector shows the normal to the boundary; its direction encodes the separating line.</li>
-      <li>Higher η converges in fewer presses but with larger jumps; lower η needs more presses but is smoother.</li>
-      <li>The bias <code>b</code> controls the intercept. With <code>b=0</code>, the separator goes through the origin.</li>
-      <li>Because the data are linearly separable, the perceptron can reach a perfect separator with suitable <code>b</code>.</li>
+      <li>False negative (pred −1, true +1) → add features and increase bias.</li>
+      <li>False positive (pred +1, true −1) → subtract features and decrease bias.</li>
+      <li>Correct classification → <strong>no update</strong>.</li>
     </ul>
+    <div style="margin-top:6px;color:#9ca3af;">
+      Epoch = <em>N random steps</em>, where N is the number of samples. A summary (Δw, Δb, mistakes) is logged each epoch.
+    </div>
   </div>
 
   <div class="container">
@@ -151,10 +156,10 @@
       <div class="legend">
         <span><span class="dot blue"></span>Class +1 (blue)</span>
         <span><span class="dot orange"></span>Class −1 (orange)</span>
-        <span><span class="dot white"></span>Current training point</span>
+        <span><span class="dot white"></span>Currently sampled point</span>
       </div>
-      <div class="note">
-        Decision boundary: <code>w<sub>x</sub> · x + w<sub>y</sub> · y + b = 0</code>. With <code>b = 0</code>, the boundary passes through the origin; a separator exists between the two slopes.
+      <div class="note" style="margin-top:10px;color:#94a3b8;font-size:12px;">
+        Decision boundary: <code>w_x · x + w_y · y + b = 0</code>.
       </div>
     </div>
 
@@ -163,37 +168,50 @@
       <h2>Controls</h2>
       <div class="controls">
         <div class="control">
-          <label for="lr">Learning rate (η)</label>
+          <label for="lr">Learning rate (η) for weights</label>
           <input id="lr" type="number" step="0.01" value="0.2" />
         </div>
         <div class="control">
-          <label for="bias">Bias (b) — fixed during training</label>
-          <input id="bias" type="number" step="0.1" value="0.0" />
+          <label for="lrB">Bias learning rate (η_b)</label>
+          <input id="lrB" type="number" step="0.01" value="1.0" />
+        </div>
+        <div class="control">
+          <label for="maxEpochs">Max epochs (Run)</label>
+          <input id="maxEpochs" type="number" step="1" value="50" />
+        </div>
+        <div class="control">
+          <label for="delay">Run delay per step (ms)</label>
+          <input id="delay" type="number" step="10" value="30" />
         </div>
       </div>
 
       <div class="buttons">
-        <button id="trainBtn">Train</button>
+        <button id="stepBtn">Step</button>
+        <button id="runBtn">Run</button>
         <button id="resetBtn">Reset</button>
         <button id="randomBtn">Randomize data</button>
       </div>
 
       <div class="status" id="status">
-        Ready. Initial weights <code>w = (0.00, 0.00)</code>, fixed bias <code>b = 0.00</code>.
+        Ready. Initial <code>w = (0.00, 0.00)</code>, <code>b = 0.00</code>. Sampling: <strong>random</strong>.
       </div>
 
       <div class="metrics">
         <div class="metric">
-          <div><strong>Weights</strong></div>
+          <div><strong>Weights & Bias</strong></div>
           <div id="weights"><code>w = (0.00, 0.00)</code></div>
+          <div id="bias"><code>b = 0.00</code></div>
           <div id="norm"><code>‖w‖ = 0.00</code></div>
         </div>
         <div class="metric">
           <div><strong>Accuracy</strong></div>
-          <div id="acc"><code>Accuracy = 50.00%</code></div>
+          <div id="acc"><code>Accuracy = 0.00%</code></div>
           <div id="mis"><code>Misclassified = 0 / 0</code></div>
         </div>
       </div>
+
+      <h3 style="margin-top:16px;">Epoch summaries</h3>
+      <div id="epochLog" aria-live="polite" aria-label="Epoch update summaries"></div>
     </div>
   </div>
 
@@ -204,34 +222,50 @@
     const canvas = document.getElementById('plot');
     const ctx = canvas.getContext('2d');
 
-    const lrInput = document.getElementById('lr');
-    const biasInput = document.getElementById('bias');
-    const trainBtn = document.getElementById('trainBtn');
+    const stepBtn = document.getElementById('stepBtn');
+    const runBtn = document.getElementById('runBtn');
     const resetBtn = document.getElementById('resetBtn');
     const randomBtn = document.getElementById('randomBtn');
 
+    const lrInput = document.getElementById('lr');
+    const lrBInput = document.getElementById('lrB');
+    const maxEpochsInput = document.getElementById('maxEpochs');
+    const delayInput = document.getElementById('delay');
+
     const statusEl = document.getElementById('status');
     const weightsEl = document.getElementById('weights');
+    const biasEl = document.getElementById('bias');
     const normEl = document.getElementById('norm');
     const accEl = document.getElementById('acc');
     const misEl = document.getElementById('mis');
+    const epochLog = document.getElementById('epochLog');
 
-    // Upper-right quadrant range
     const RANGE = { xmin: 0, xmax: 10, ymin: 0, ymax: 10 };
 
-    // Colors
-    const COLOR_PLUS = '#3b82f6';  // blue
-    const COLOR_MINUS = '#f59e0b'; // orange
+    const COLOR_PLUS = '#3b82f6';   // blue
+    const COLOR_MINUS = '#f59e0b';  // orange
     const COLOR_AXIS = '#374151';
     const COLOR_GRID = '#1f2937';
     const COLOR_BOUNDARY = '#22c55e';
     const COLOR_ACTIVE = '#e5e7eb';
 
-    // Perceptron state
-    let w = { x: 0, y: 0 };  // weights
-    let b = 0;               // fixed bias
-    let data = [];           // {x, y, label}
-    let activeIndex = 0;     // pointer for next misclassified point
+    let data = []; // {x,y,label}
+    let w = { x: 0, y: 0 };
+    let b = 0;
+
+    // For random sampling, we store the most recent sampled index for highlighting
+    let currentIndex = -1;
+
+    // Epoch accounting: define an epoch as N random steps
+    let epoch = 0;
+    let stepsInEpoch = 0;
+
+    // per-epoch accumulators
+    let epochDelta = resetEpochDelta();
+
+    function resetEpochDelta() {
+      return { dw: [0, 0], db: 0, mistakes: 0 };
+    }
 
     // ============================
     // UTILITIES
@@ -256,21 +290,21 @@
     };
 
     function dot(wx, wy, x, y, bias) { return wx * x + wy * y + bias; }
-
-    function classify(pt) {
-      const s = dot(w.x, w.y, pt.x, pt.y, b);
-      if (s > 0) return +1;
-      if (s < 0) return -1;
-      return 0; // treat exactly-on-boundary as misclassified to keep training moving
-    }
-
     function length(vec) { return Math.sqrt(vec.x * vec.x + vec.y * vec.y); }
 
+    function signScore(s) {
+      if (s > 0) return +1;
+      if (s < 0) return -1;
+      return 0; // treat boundary as 0 (we will handle as misclassified)
+    }
+
+    function pickRandomIndex(n) {
+      return Math.floor(Math.random() * n);
+    }
+
     // ============================
-    // DATA INITIALIZATION (GUARANTEED SEPARABLE)
+    // DATA: separable upper-right quadrant
     // ============================
-    // Two close lines through the origin: y ≈ slope * x, with small noise.
-    // Slopes ensure separability across the full x-range.
     function makeDefaultData() {
       const pts = [];
       const randn = () => {
@@ -282,14 +316,13 @@
       };
       const randu = (a, b) => a + Math.random() * (b - a);
 
-      const N = 24;               // points per class
-      const slopeMinus = 0.95;    // lower slope (class -1)
-      const slopePlus  = 1.15;    // higher slope (class +1)
-      const noiseScale = 0.15;    // small vertical noise
-      const xJitter    = 0.10;    // small x jitter
+      const N = 24;             // points per class
+      const slopeMinus = 0.95;  // lower slope (class -1)
+      const slopePlus  = 1.15;  // higher slope (class +1)
+      const noiseScale = 0.15;  // small vertical noise
+      const xJitter    = 0.10;  // small x jitter
       const xMin = 1.5, xMax = 9.5;
 
-      // Keep a strict margin: clip vertical noise so classes do not overlap
       const clipNoise = (n) => Math.max(-0.14, Math.min(0.14, n));
 
       for (let i = 0; i < N; i++) {
@@ -308,10 +341,14 @@
 
     function randomizeData() {
       data = makeDefaultData();
-      activeIndex = 0;
+      currentIndex = -1;
+      epoch = 0;
+      stepsInEpoch = 0;
+      epochDelta = resetEpochDelta();
+      epochLog.innerHTML = '';
+      statusEl.innerHTML = `Dataset randomized (linearly separable). Sampling: <strong>random</strong>.`;
       draw();
       updateMetrics();
-      statusEl.innerHTML = `Dataset randomized (upper-right quadrant, linearly separable). Initial weights <code>w = (0.00, 0.00)</code>, bias <code>b = ${b.toFixed(2)}</code>.`;
     }
 
     // ============================
@@ -360,7 +397,7 @@
         ctx.arc(px, py, 6, 0, 2 * Math.PI);
         ctx.fill();
 
-        if (i === activeIndex) {
+        if (i === currentIndex) {
           ctx.strokeStyle = COLOR_ACTIVE;
           ctx.lineWidth = 2;
           ctx.beginPath();
@@ -433,6 +470,12 @@
     // ============================
     // METRICS & STATUS
     // ============================
+    function classify(pt) {
+      const s = dot(w.x, w.y, pt.x, pt.y, b);
+      const pred = signScore(s);
+      return pred;
+    }
+
     function recomputeAccuracy() {
       let correct = 0, mis = 0;
       for (const pt of data) {
@@ -440,115 +483,185 @@
         if (pred === pt.label) correct++;
         else mis++;
       }
-      return { correct, mis, total: data.length, acc: (correct / data.length) * 100 };
+      return { correct, mis, total: data.length, acc: data.length ? (correct / data.length) * 100 : 0 };
     }
 
     function updateMetrics() {
       const { correct, mis, total, acc } = recomputeAccuracy();
       weightsEl.innerHTML = `<code>w = (${w.x.toFixed(2)}, ${w.y.toFixed(2)})</code>`;
+      biasEl.innerHTML = `<code>b = ${b.toFixed(2)}</code>`;
       normEl.innerHTML = `<code>‖w‖ = ${length(w).toFixed(2)}</code>`;
       accEl.innerHTML = `<code>Accuracy = ${acc.toFixed(2)}%</code>`;
       misEl.innerHTML = `<code>Misclassified = ${mis} / ${total}</code>`;
     }
 
-    // ============================
-    // TRAINING STEP
-    // ============================
-    function findNextMisclassified(startIdx = 0) {
-      const n = data.length;
-      for (let i = 0; i < n; i++) {
-        const idx = (startIdx + i) % n;
-        const pt = data[idx];
-        const pred = classify(pt);
-        if (pred !== pt.label) return idx;
-      }
-      return -1; // none misclassified
+    function logEpochSummary(epochNum, summary) {
+      const line = document.createElement('div');
+      line.className = 'logline';
+      line.textContent =
+        `Epoch ${epochNum.toString().padStart(3, ' ')}: ` +
+        `Δw=[${summary.dw[0].toFixed(3)}, ${summary.dw[1].toFixed(3)}], ` +
+        `Δb=${summary.db.toFixed(3)}, mistakes=${summary.mistakes}`;
+      epochLog.insertAdjacentElement('afterbegin', line);
+
+      while (epochLog.children.length > 80) epochLog.lastChild.remove();
     }
 
-    function trainOnceEnsureFix() {
-      const eta = parseFloat(lrInput.value);
-      b = parseFloat(biasInput.value);
+    // ============================
+    // TRAINING (Random Sampling)
+    // ============================
+    function stepOnce() {
+      if (!data.length) return;
 
+      const eta  = parseFloat(lrInput.value);
+      const etaB = parseFloat(lrBInput.value);
       if (!isFinite(eta) || eta <= 0) {
-        statusEl.innerHTML = `<span style="color:#f87171">Invalid learning rate. Use a positive number (e.g., 0.2).</span>`;
+        statusEl.innerHTML = `<span style="color:#f87171">Invalid η. Use a positive number (e.g., 0.2).</span>`;
         return;
       }
-      if (!isFinite(b)) {
-        statusEl.innerHTML = `<span style="color:#f87171">Invalid bias value.</span>`;
-        return;
-      }
-
-      let idx = findNextMisclassified(activeIndex);
-      if (idx === -1) {
-        statusEl.innerHTML = `All points are perfectly separated 🎉. You can randomize data or reset weights.`;
-        draw();
-        updateMetrics();
+      if (!isFinite(etaB) || etaB <= 0) {
+        statusEl.innerHTML = `<span style="color:#f87171">Invalid η_b. Use a positive number (e.g., 1.0).</span>`;
         return;
       }
 
-      activeIndex = idx;
-      const pt = data[idx];
-      const desired = pt.label;
+      // --- RANDOMLY PICK A SAMPLE EACH STEP ---
+      currentIndex = pickRandomIndex(data.length);
+      const pt = data[currentIndex];
+      const y = pt.label;
 
-      // Update until this point is correctly classified (safety capped)
-      let iter = 0;
-      const maxIter = 1000;
-      while (iter < maxIter) {
-        const pred = classify(pt);
-        if (pred === desired) break;
+      const s = dot(w.x, w.y, pt.x, pt.y, b);
+      const pred = signScore(s === 0 ? -y : s); // treat exactly-on-boundary as misclassified (push away)
+      // (the s===0?-y: s trick biases the tie against current point to keep updates moving)
 
-        // Perceptron update (fixed bias): w <- w + eta * y * x
-        w.x += eta * desired * pt.x;
-        w.y += eta * desired * pt.y;
-        iter++;
-      }
+      if (pred !== y) {
+        // Misclassified → update weights and bias
+        const dw0 = eta * y * pt.x;
+        const dw1 = eta * y * pt.y;
+        const db  = etaB * y;
 
-      if (iter >= maxIter) {
-        statusEl.innerHTML = `<span style="color:#f87171">Reached iteration cap without classifying the active point. Try a larger η or set b near 0 for this dataset.</span>`;
+        w.x += dw0;
+        w.y += dw1;
+        b   += db;
+
+        epochDelta.dw[0] += dw0;
+        epochDelta.dw[1] += dw1;
+        epochDelta.db    += db;
+        epochDelta.mistakes += 1;
+
+        const dir = (y > 0) ? 'add' : 'subtract';
+        statusEl.innerHTML =
+          `Misclassified → ${dir} input features and ${dir} bias: ` +
+          `<code>Δw = [${dw0.toFixed(2)}, ${dw1.toFixed(2)}], Δb = ${db.toFixed(2)}</code>`;
       } else {
-        statusEl.innerHTML = `Updated weights to correctly classify the active point in <code>${iter}</code> small step(s).`;
-        activeIndex = (idx + 1) % data.length;
+        statusEl.innerHTML = `Correct → no update (<code>Δw = [0, 0], Δb = 0</code>).`;
+      }
+
+      // Epoch accounting: N random steps per epoch
+      stepsInEpoch++;
+      if (stepsInEpoch >= data.length) {
+        logEpochSummary(epoch, epochDelta);
+        const { mis } = recomputeAccuracy();
+        if (mis === 0) {
+          const note = document.createElement('div');
+          note.className = 'logline muted';
+          note.textContent = `No mistakes in epoch ${epoch} → converged.`;
+          epochLog.insertAdjacentElement('afterbegin', note);
+        }
+        epoch++;
+        stepsInEpoch = 0;
+        epochDelta = resetEpochDelta();
       }
 
       draw();
       updateMetrics();
+    }
+
+    async function runLoop() {
+      if (!data.length) return;
+      let running = (runBtn.dataset.running === 'true') ? true : false;
+      running = !running;
+      runBtn.dataset.running = running ? 'true' : 'false';
+      runBtn.textContent = running ? 'Stop' : 'Run';
+
+      const maxEpochs = parseInt(maxEpochsInput.value) || 50;
+      const delay = Math.max(0, parseInt(delayInput.value) || 0);
+      const startEpoch = epoch;
+
+      while (running) {
+        stepOnce();
+        await sleep(delay);
+
+        const { mis } = recomputeAccuracy();
+        if (mis === 0) {
+          statusEl.innerHTML = `Converged: 0 misclassifications.`;
+          running = false;
+          runBtn.dataset.running = 'false';
+          runBtn.textContent = 'Run';
+          break;
+        }
+
+        if ((epoch - startEpoch) >= maxEpochs) {
+          const note = document.createElement('div');
+          note.className = 'logline muted';
+          note.textContent = `Stopped after ${maxEpochs} epochs.`;
+          epochLog.insertAdjacentElement('afterbegin', note);
+          running = false;
+          runBtn.dataset.running = 'false';
+          runBtn.textContent = 'Run';
+          break;
+        }
+      }
     }
 
     // ============================
     // INTERACTION
     // ============================
-    trainBtn.addEventListener('click', trainOnceEnsureFix);
+    stepBtn.addEventListener('click', stepOnce);
+    runBtn.addEventListener('click', runLoop);
     resetBtn.addEventListener('click', () => {
       w = { x: 0, y: 0 };
-      b = parseFloat(biasInput.value) || 0;
-      activeIndex = 0;
-      statusEl.innerHTML = `Reset: weights <code>w = (0.00, 0.00)</code>, fixed bias <code>b = ${b.toFixed(2)}</code>.`;
+      b = 0;
+      currentIndex = -1;
+      epoch = 0;
+      stepsInEpoch = 0;
+      runBtn.dataset.running = 'false';
+      runBtn.textContent = 'Run';
+      epochDelta = resetEpochDelta();
+      epochLog.innerHTML = '';
+      statusEl.innerHTML = `Reset: <code>w = (0.00, 0.00)</code>, <code>b = 0.00</code>. Sampling: <strong>random</strong>.`;
       draw();
       updateMetrics();
     });
     randomBtn.addEventListener('click', randomizeData);
 
-    // Add points by clicking: label via a slope separator y = s*x with s between the two class slopes
+    // Add points by clicking: label via a separator slope between the two class slopes
     canvas.addEventListener('click', (evt) => {
       const rect = canvas.getBoundingClientRect();
       const px = evt.clientX - rect.left;
       const py = evt.clientY - rect.top;
       const x = Math.max(0.05, unmapX(px));
-      const y = Math.max(0.05, unmapY(py));
+      const yv = Math.max(0.05, unmapY(py));
       const sepSlope = 1.05; // between 0.95 and 1.15
-      const lbl = (y > sepSlope * x) ? +1 : -1;
-      data.push({ x, y, label: lbl });
-      statusEl.innerHTML = `Added point (${x.toFixed(2)}, ${y.toFixed(2)}) with label ${lbl > 0 ? '+1' : '-1'}.`;
+      const lbl = (yv > sepSlope * x) ? +1 : -1;
+      data.push({ x, y: yv, label: lbl });
+      statusEl.innerHTML = `Added point (${x.toFixed(2)}, ${yv.toFixed(2)}) with label ${lbl > 0 ? '+1' : '-1'}.`;
       draw();
       updateMetrics();
     });
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
     // ============================
     // INIT
     // ============================
     (function init() {
       data = makeDefaultData();
-      b = parseFloat(biasInput.value) || 0;
+      w = { x: 0, y: 0 };
+      b = 0;
+      currentIndex = -1;
+      epoch = 0;
+      stepsInEpoch = 0;
+      epochDelta = resetEpochDelta();
       draw();
       updateMetrics();
     })();
