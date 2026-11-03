@@ -103,7 +103,7 @@
           <label>Split heuristic
             <select id="splitHeuristic">
               <option value="farthestSeeds" selected>Farthest seeds (2-means style)</option>
-              <option value="maxDiameter">Max-diameter bipartition</option>
+              <option value="maxDiameter">DIANA splinter group</option>
             </select>
           </label>
         </div>
@@ -166,7 +166,7 @@
     </div>
     <div class="content">
       <div class="hint">
-        Agglomerative grows upward; Divisive shows a trunk and then splits downward.
+        Root on top, leaves at the bottom. Agglomerative builds it bottom-up (merges); Divisive reveals it top-down (splits). Shaded triangles are clusters not split yet; divisive height = cluster diameter.
       </div>
     </div>
   </div>
@@ -507,39 +507,41 @@ function recomputeAggloColors(){
    Divisive clustering & coloring
    ========================= */
 function buildDivisive(pts, heuristic='farthestSeeds'){
-  const root = { type:'node', id:'R_'+newId(), height:0, left:null, right:null, leaves:[...pts] };
+  // Node height = cluster DIAMETER (max pairwise distance).
+  // A sub-cluster can never have a larger diameter than its parent, so heights are
+  // monotone and the dendrogram never has crossings / inversions.
+  const mk = (leaves) => ({ type:'node', id:'N_'+newId(), height: diameter(leaves), left:null, right:null, leaves });
+  const root = mk([...pts]); root.id = 'R_'+newId();
   const steps = [];
-  const queue=[root];
-  let maxH=0;
+  const open = [root];   // clusters still to be split
 
-  while(queue.length){
-    const C = queue.shift();
-    if(C.leaves.length<=1) continue;
+  while(open.length){
+    // DIANA rule: always split the cluster with the largest diameter next
+    let bi = 0;
+    for(let i=1;i<open.length;i++) if(open[i].height > open[bi].height) bi = i;
+    const C = open.splice(bi,1)[0];
+    if(C.leaves.length<=1 || C.height<=0) continue;
 
-    let split=null;
-    if(heuristic==='farthestSeeds') split = splitByFarthestSeeds(C.leaves);
-    else split = splitByMaxDiameter(C.leaves);
-
+    const split = (heuristic==='farthestSeeds') ? splitByFarthestSeeds(C.leaves) : splitByMaxDiameter(C.leaves);
     if(!split || split.left.length===0 || split.right.length===0) continue;
 
-    const h = split.height;
-    maxH = Math.max(maxH,h);
-
-    C.type='split'; C.height=h;
-    C.left  = { type:'node', id:'N_'+newId(), height:0, left:null, right:null, leaves:split.left };
-    C.right = { type:'node', id:'N_'+newId(), height:0, left:null, right:null, leaves:split.right };
-    steps.push({ type:'split', parent:C, left:C.left, right:C.right, height:h });
-
-    queue.push(C.left, C.right);
+    C.type='split';
+    C.left  = mk(split.left);
+    C.right = mk(split.right);
+    steps.push({ type:'split', parent:C, left:C.left, right:C.right, height:C.height });
+    if(C.left.leaves.length>1)  open.push(C.left);
+    if(C.right.leaves.length>1) open.push(C.right);
   }
 
-  // IMPORTANT: set the root's height to maxH so the trunk appears immediately
-  root.height = Math.max(maxH, 1e-6);
-  // show the largest splits first
-  steps.sort((a,b)=> b.height - a.height);
-  return { mode:'divisive', root, fullSteps: steps, revealedSteps:0, appliedHeight:0, maxHeight: root.height };
+  // steps are already in non-increasing height order (largest split first)
+  return { mode:'divisive', root, fullSteps: steps, revealedSteps:0, appliedHeight:0, maxHeight: Math.max(root.height, 1e-6) };
 }
 
+function diameter(arr){
+  let m=0;
+  for(let i=0;i<arr.length;i++) for(let j=i+1;j<arr.length;j++){ const d=dist(arr[i],arr[j]); if(d>m) m=d; }
+  return m;
+}
 function centroid(arr){ let sx=0,sy=0; for(const p of arr){ sx+=p.x; sy+=p.y; } return { x:sx/arr.length, y:sy/arr.length }; }
 function splitByFarthestSeeds(arr){
   if(arr.length<2) return null;
@@ -548,20 +550,40 @@ function splitByFarthestSeeds(arr){
   const seedA=arr[a], seedB=arr[b];
   const left=[], right=[];
   for(const p of arr){ (dist(p,seedA) <= dist(p,seedB) ? left : right).push(p); }
-  const h = dist(centroid(left), centroid(right));
-  return { left, right, height:h };
+  return { left, right };
 }
+// Classic DIANA "splinter group" split:
+// 1) start a splinter group with the point that has the largest average distance to the others;
+// 2) repeatedly move the point that is (on average) closer to the splinter group than to the rest,
+//    until no point wants to move.
 function splitByMaxDiameter(arr){
-  if(arr.length<2) return null;
-  let idx=0,best=-1;
-  for(let i=0;i<arr.length;i++){
-    let s=0; for(let j=0;j<arr.length;j++) if(i!==j) s += dist(arr[i],arr[j]);
-    const avg=s/(arr.length-1); if(avg>best){ best=avg; idx=i; }
+  const n = arr.length;
+  if(n<2) return null;
+  const inSpl = new Array(n).fill(false);
+  const sumRest = new Array(n).fill(0), sumSpl = new Array(n).fill(0);
+  for(let i=0;i<n;i++) for(let j=0;j<n;j++) if(i!==j) sumRest[i] += dist(arr[i],arr[j]);
+
+  let first=0; for(let i=1;i<n;i++) if(sumRest[i] > sumRest[first]) first=i;
+  const move = k => {
+    inSpl[k]=true;
+    for(let i=0;i<n;i++) if(i!==k){ const d=dist(arr[i],arr[k]); sumRest[i]-=d; sumSpl[i]+=d; }
+  };
+  move(first);
+  let nSpl=1;
+  while(n - nSpl > 1){
+    let best=-1, bestGain=0;
+    for(let i=0;i<n;i++){
+      if(inSpl[i]) continue;
+      const nRest = n - nSpl - 1;
+      const gain = sumRest[i]/nRest - sumSpl[i]/nSpl;   // >0 → closer to splinter group
+      if(gain > bestGain){ bestGain=gain; best=i; }
+    }
+    if(best<0) break;
+    move(best); nSpl++;
   }
-  const pivot=arr[idx]; const left=[pivot], right=[];
-  for(let i=0;i<arr.length;i++){ if(i!==idx) right.push(arr[i]); }
-  const h = dist(centroid(left), centroid(right));
-  return { left, right, height:h };
+  const left=[], right=[];
+  for(let i=0;i<n;i++) (inSpl[i] ? left : right).push(arr[i]);
+  return { left, right };
 }
 
 // Dynamic split coloring: the "peeled" child gets a new color; the other keeps parent's color
@@ -701,77 +723,86 @@ function drawAggNodeProgressive(svg, node, X, yScale, revealHeight){
   }
 }
 
-// Divisive progressive drawing
+// Divisive progressive drawing (same orientation as agglomerative: root on top, leaves at the bottom)
 function divX(node, X){
   const leaves = getLeaves(node);
   const xs = leaves.map(p => X.get(p.id));
-  const s = xs.reduce((a,b)=>a+b,0);
-  return s/xs.length;
+  return xs.reduce((a,b)=>a+b,0)/xs.length;
 }
 function drawDivNodeProgressive(svg, node, X, yScale, revealedSet){
   if(!node) return;
+  const yBase = yScale(0);
+  const leaves = getLeaves(node);
 
-  // Always draw the "trunk" for any node (so the dendrogram appears immediately)
-  const xNode = divX(node, X);
-  const yTop  = yScale(node.height||0);
-  const yBot  = yScale(0);
-  svg.appendChild(line(xNode, yTop, xNode, yBot, '#0002', 1)); // faint trunk
-
-  if(!(node.left && node.right && revealedSet.has(node.id))){
-    // Not revealed yet => only leaf ticks (no split lines)
-    const leaves = getLeaves(node);
-    for(const p of leaves){
-      const xx = X.get(p.id);
-      svg.appendChild(line(xx, yBot-6, xx, yBot, '#0003', 1));
-    }
+  if(node.left && node.right && revealedSet.has(node.id)){
+    // Revealed split: horizontal bar at the parent's height, verticals down to each child's height
+    const yn = yScale(node.height);
+    const xl = divX(node.left, X), xr = divX(node.right, X);
+    svg.appendChild(line(xl, yn, xr, yn, '#0008', 1.5));
+    svg.appendChild(line(xl, yn, xl, yScale(node.left.height||0),  '#0008', 1));
+    svg.appendChild(line(xr, yn, xr, yScale(node.right.height||0), '#0008', 1));
+    drawDivNodeProgressive(svg, node.left,  X, yScale, revealedSet);
+    drawDivNodeProgressive(svg, node.right, X, yScale, revealedSet);
     return;
   }
 
-  // Node is revealed as split → draw the split connections and recurse
-  const xl = divX(node.left, X), xr = divX(node.right, X);
-  const yl = yScale(node.left.height||0), yr = yScale(node.right.height||0);
-
-  svg.appendChild(line(xl, yTop, xl, yl, '#0008', 1));
-  svg.appendChild(line(xr, yTop, xr, yr, '#0008', 1));
-  svg.appendChild(line(xl, yl, xr, yl, '#0008', 1.5));
-
-  drawDivNodeProgressive(svg, node.left, X, yScale, revealedSet);
-  drawDivNodeProgressive(svg, node.right, X, yScale, revealedSet);
+  // Not split yet: draw the cluster as a shaded triangle (apex at its diameter, base spanning its leaves)
+  if(leaves.length>1){
+    const xs = leaves.map(p => X.get(p.id));
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), xa = divX(node, X), ya = yScale(node.height||0);
+    const col = clusterColorDiv.get(node.id) || '#9ca3af';
+    const tri = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    tri.setAttribute('points', `${xa},${ya} ${x0},${yBase} ${x1},${yBase}`);
+    tri.setAttribute('fill', col); tri.setAttribute('fill-opacity', 0.18);
+    tri.setAttribute('stroke', col); tri.setAttribute('stroke-opacity', 0.6); tri.setAttribute('stroke-width', 1);
+    svg.appendChild(tri);
+  }
+  for(const p of leaves){
+    const xx = X.get(p.id);
+    svg.appendChild(line(xx, yBase, xx, yBase+6, '#0003', 1));
+  }
 }
 
 function drawDendrogram(){
   const svg = dendroSVG; while(svg.firstChild) svg.removeChild(svg.firstChild);
   if(!built) return;
 
-  const leaves = getLeaves(built.root).slice().sort((a,b)=> a.id.localeCompare(b.id));
+  // Leaves in TREE order (not sorted by id) so branches never cross
+  const leaves = getLeaves(built.root);
   const X = new Map();
-  const margin = 30, innerW = Wd - 2*margin, innerH = Hd - 24;
-  const dx = (innerW) / Math.max(1, leaves.length-1);
-  leaves.forEach((p, i)=> X.set(p.id, margin + i*dx));
+  const mL = 44, mR = 14, top = 14, innerW = Wd - mL - mR, innerH = Hd - top - 26;
+  const dx = innerW / Math.max(1, leaves.length-1);
+  leaves.forEach((p, i)=> X.set(p.id, mL + (leaves.length>1 ? i*dx : innerW/2)));
 
   const maxH = built.maxHeight || 1e-6;
-  const yAgg = h => innerH - (h/maxH)*innerH + 12;   // up
-  const yDiv = h => (h/maxH)*innerH + 12;            // down
+  const yScale = h => top + (1 - h/maxH)*innerH;   // root (max height) on top, leaves at the bottom
+
+  // Height axis
+  svg.appendChild(line(mL-8, top, mL-8, top+innerH, '#0004', 1));
+  for(let k=0;k<=4;k++){
+    const h = maxH*k/4, y = yScale(h);
+    svg.appendChild(line(mL-12, y, mL-8, y, '#0006', 1));
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x', mL-14); t.setAttribute('y', y+4); t.setAttribute('text-anchor','end');
+    t.setAttribute('font-size','10'); t.setAttribute('fill','#6b7280'); t.textContent = h.toFixed(2);
+    svg.appendChild(t);
+  }
+  const lab = document.createElementNS('http://www.w3.org/2000/svg','text');
+  lab.setAttribute('x', 10); lab.setAttribute('y', top + innerH/2); lab.setAttribute('font-size','11'); lab.setAttribute('fill','#6b7280');
+  lab.setAttribute('text-anchor','middle'); lab.setAttribute('transform', `rotate(-90 10 ${top + innerH/2})`);
+  lab.textContent = built.mode==='agglomerative' ? 'merge distance (linkage)' : 'cluster diameter';
+  svg.appendChild(lab);
 
   const revealCount = built.revealedSteps;
-  const revealHeightAgg = (revealCount>0 && built.mode==='agglomerative')
-    ? built.fullSteps[revealCount-1].height
-    : 0;
-  const revealedSetDiv = new Set(
-    (built.mode==='divisive')
-      ? built.fullSteps.slice(0,revealCount).map(s=> s.parent.id)
-      : []
-  );
-
   if(built.mode==='agglomerative'){
-    drawAggNodeProgressive(svg, built.root, X, yAgg, revealHeightAgg);
-    const y = yAgg(parseFloat(threshold.value));
-    const L = line(0, y, Wd, y, varGet('--err'), 2); L.setAttribute('stroke-dasharray','6 4'); svg.appendChild(L);
+    const revealHeightAgg = revealCount>0 ? built.fullSteps[revealCount-1].height : -1;
+    drawAggNodeProgressive(svg, built.root, X, yScale, revealHeightAgg);
   } else {
-    drawDivNodeProgressive(svg, built.root, X, yDiv, revealedSetDiv);
-    const y = yDiv(parseFloat(threshold.value));
-    const L = line(0, y, Wd, y, varGet('--err'), 2); L.setAttribute('stroke-dasharray','6 4'); svg.appendChild(L);
+    const revealedSetDiv = new Set(built.fullSteps.slice(0,revealCount).map(s=> s.parent.id));
+    drawDivNodeProgressive(svg, built.root, X, yScale, revealedSetDiv);
   }
+  const y = yScale(parseFloat(threshold.value));
+  const L = line(mL-8, y, Wd, y, varGet('--err'), 2); L.setAttribute('stroke-dasharray','6 4'); svg.appendChild(L);
 }
 
 /* =========================
