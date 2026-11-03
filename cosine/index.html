@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Cosine Similarity Playground — Direction vs. Magnitude</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --panel-bg:#f7f7fb; --ink:#222; --muted:#6b7280; --accent:#0ea5e9;
+    --ok:#16a34a; --warn:#f59e0b; --err:#ef4444; --grid:#e5e7eb;
+    --ana:#7c3aed; --bruno:#16a34a; --carla:#f97316;
+  }
+  html,body{height:100%; margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,"Helvetica Neue",Arial,"Noto Sans",sans-serif; color:var(--ink);}
+  #app{
+    height:100%;
+    display:grid;
+    grid-template-columns: 300px 1fr 420px;
+    grid-template-rows: 100%;
+    gap:10px;
+    padding:10px;
+    box-sizing:border-box;
+    background:#fff;
+  }
+  .panel{
+    border:1px solid var(--grid);
+    border-radius:10px;
+    background:var(--panel-bg);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+    min-height:0;
+  }
+  .panel h2{
+    font-size:16px; margin:0; padding:10px 12px; background:#fff; border-bottom:1px solid var(--grid);
+  }
+  .panel .content{ padding:10px; overflow:auto; }
+  fieldset{ border:1px solid var(--grid); border-radius:8px; margin:8px 0; background:#fff0; }
+  legend{ color:var(--muted); font-size:12px; padding:0 6px; }
+  label{ display:block; margin:6px 0; font-size:14px; }
+  input[type="number"], select{
+    width:100%; box-sizing:border-box; padding:6px 8px; border-radius:6px; border:1px solid var(--grid); background:#fff;
+  }
+  input[type="range"]{ width:100%; }
+  button{
+    cursor:pointer; border:1px solid var(--grid); background:#fff; color:var(--ink);
+    border-radius:8px; padding:8px 10px; margin:4px 2px; font-weight:600;
+  }
+  button.primary{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  .row{ display:flex; gap:6px; align-items:center; }
+  .row > *{ flex:1; }
+  small.note{ color:var(--muted); display:block; margin-top:4px; }
+  .canvas-wrap{ flex:1; position:relative; background:#fff; border-top:1px solid var(--grid); min-height:300px; }
+  svg{ width:100%; height:100%; display:block; touch-action:none; }
+  .hint{ font-size:12px; color:var(--muted); }
+  .legend { display:flex; gap:14px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .swatch{ width:14px; height:14px; border-radius:3px; border:1px solid #0002; display:inline-block; vertical-align:-2px; margin-right:4px; }
+  .toolbar{ display:flex; flex-wrap:wrap; gap:6px; }
+  .kreadout { font-size:12px; color:var(--muted); margin-left:auto; font-weight:400; }
+  .cust-title{ font-weight:700; font-size:14px; display:flex; align-items:center; gap:6px; }
+  .val{ float:right; font-variant-numeric:tabular-nums; color:var(--muted); }
+  table.metrics{ width:100%; border-collapse:collapse; font-size:13px; background:#fff; border-radius:8px; overflow:hidden; }
+  table.metrics th, table.metrics td{ padding:7px 8px; border-bottom:1px solid var(--grid); text-align:right; font-variant-numeric:tabular-nums; }
+  table.metrics th:first-child, table.metrics td:first-child{ text-align:left; }
+  table.metrics th{ color:var(--muted); font-weight:600; font-size:12px; }
+  .best{ background:#dcfce7; color:#166534; font-weight:700; border-radius:4px; padding:1px 6px; }
+  .verdict{ border-radius:8px; padding:10px 12px; font-size:14px; line-height:1.45; margin:8px 0; border:1px solid var(--grid); background:#fff; }
+  .verdict.disagree{ border-color:#fcd34d; background:#fffbeb; }
+  .verdict.agree{ border-color:#bbf7d0; background:#f0fdf4; }
+  .calc{ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; background:#fff; border:1px solid var(--grid); border-radius:8px; padding:10px; line-height:1.6; white-space:pre-wrap; }
+  .formula{ text-align:center; font-size:15px; margin:6px 0 10px; }
+  .frac{ display:inline-flex; flex-direction:column; vertical-align:middle; text-align:center; margin:0 4px; }
+  .frac > span:first-child{ border-bottom:1px solid var(--ink); padding:0 4px; }
+  ul.take{ margin:6px 0 0 18px; padding:0; font-size:13px; line-height:1.5; }
+  @media (max-width: 1100px){
+    #app{ grid-template-columns: 1fr; grid-template-rows:auto 70vh auto; height:auto; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- LEFT: Controls -->
+  <div class="panel">
+    <h2>Controls</h2>
+    <div class="content">
+      <fieldset>
+        <legend>Customers (monthly spend, €)</legend>
+        <div id="custControls"></div>
+        <div class="hint">You can also <b>drag the dots</b> in the middle plot.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Compare against</legend>
+        <label>Reference customer
+          <select id="refSel">
+            <option value="ana" selected>Ana</option>
+            <option value="bruno">Bruno</option>
+            <option value="carla">Carla</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Display</legend>
+        <label class="row"><span>Show angles (cosine view)</span><input type="checkbox" id="showAngles" checked style="flex:0" /></label>
+        <label class="row"><span>Show distances (Euclidean view)</span><input type="checkbox" id="showDist" checked style="flex:0" /></label>
+        <label class="row"><span>Normalize to unit length</span><input type="checkbox" id="showUnit" style="flex:0" /></label>
+        <small class="note">Normalizing projects every customer onto the unit circle. After that, cosine and Euclidean rankings agree.</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Scenarios</legend>
+        <div class="toolbar">
+          <button id="pDefault" class="primary">Classic: taste vs. wallet</button>
+          <button id="pScale">Ana spends 5× more</button>
+          <button id="pTech">Ana turns into a techie</button>
+          <button id="pAgree">Metrics agree</button>
+        </div>
+      </fieldset>
+
+      <div class="hint">
+        Purple, green and orange arrows are customer vectors.
+        Dashed grey lines are Euclidean distances; arcs are angles.
+      </div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Vector plot -->
+  <div class="panel">
+    <h2 style="display:flex;align-items:center;gap:8px;">
+      Customer vectors (drag to move)
+      <span id="readout" class="kreadout"></span>
+    </h2>
+    <div class="canvas-wrap">
+      <svg id="plot"></svg>
+    </div>
+    <div class="content">
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--ana)"></span>Ana</span>
+        <span><span class="swatch" style="background:var(--bruno)"></span>Bruno</span>
+        <span><span class="swatch" style="background:var(--carla)"></span>Carla</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Results -->
+  <div class="panel">
+    <h2>Similarity results</h2>
+    <div class="content">
+      <div class="formula">
+        cos(θ) =
+        <span class="frac"><span>A · B</span><span>‖A‖ ‖B‖</span></span>
+        =
+        <span class="frac"><span>Σ a<sub>i</sub>b<sub>i</sub></span><span>√Σa<sub>i</sub>² · √Σb<sub>i</sub>²</span></span>
+      </div>
+
+      <table class="metrics">
+        <thead><tr><th>Pair</th><th>Cosine</th><th>Angle</th><th>Euclidean</th></tr></thead>
+        <tbody id="metricsBody"></tbody>
+      </table>
+
+      <div id="verdict" class="verdict"></div>
+
+      <fieldset>
+        <legend>Step-by-step calculation</legend>
+        <div id="calc" class="calc"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Business takeaway</legend>
+        <ul class="take">
+          <li><b>Cosine</b> compares the <i>mix</i> (direction): what customers spend on. Good for recommenders, share-of-wallet segmentation and text similarity.</li>
+          <li><b>Euclidean</b> compares absolute <i>position</i>: how much they spend. Use it when volume matters (credit risk, pricing tiers).</li>
+          <li>Cosine = 1 means same proportions, whatever the size. With non-negative data it ranges from 0 to 1.</li>
+        </ul>
+      </fieldset>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================
+   Globals & State
+========================= */
+const $ = s => document.querySelector(s);
+const svg = $('#plot');
+const NS = 'http://www.w3.org/2000/svg';
+const MAX = 100;
+
+const customers = [
+  { key:'ana',   name:'Ana',   color:'var(--ana)',   hex:'#7c3aed', x:8,  y:2  },
+  { key:'bruno', name:'Bruno', color:'var(--bruno)', hex:'#16a34a', x:80, y:20 },
+  { key:'carla', name:'Carla', color:'var(--carla)', hex:'#f97316', x:10, y:30 },
+];
+const byKey = k => customers.find(c => c.key === k);
+
+let W=0, H=0, S=1, ox=0, oy=0; // size, scale, origin
+let dragging = null;
+
+/* =========================
+   Math
+========================= */
+const dot  = (a,b) => a.x*b.x + a.y*b.y;
+const norm = a => Math.hypot(a.x, a.y);
+const cosSim = (a,b) => { const n = norm(a)*norm(b); return n ? dot(a,b)/n : 0; };
+const angleDeg = (a,b) => Math.acos(Math.max(-1, Math.min(1, cosSim(a,b)))) * 180/Math.PI;
+const euclid = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+const unit = a => { const n = norm(a) || 1; return { x:a.x/n, y:a.y/n }; };
+const f1 = v => (Math.round(v*10)/10).toFixed(1);
+const f2 = v => (Math.round(v*100)/100).toFixed(2);
+
+/* =========================
+   Controls
+========================= */
+function buildControls(){
+  const box = $('#custControls');
+  box.innerHTML = '';
+  for(const c of customers){
+    const wrap = document.createElement('div');
+    wrap.style.margin = '6px 0 10px';
+    wrap.innerHTML = `
+      <div class="cust-title"><span class="swatch" style="background:${c.color}"></span>${c.name}</div>
+      <label>Fashion <span class="val" id="${c.key}_xv"></span>
+        <input type="range" id="${c.key}_x" min="0" max="${MAX}" step="1" value="${c.x}" />
+      </label>
+      <label>Electronics <span class="val" id="${c.key}_yv"></span>
+        <input type="range" id="${c.key}_y" min="0" max="${MAX}" step="1" value="${c.y}" />
+      </label>`;
+    box.appendChild(wrap);
+    wrap.querySelector(`#${c.key}_x`).addEventListener('input', e => { c.x = +e.target.value; update(); });
+    wrap.querySelector(`#${c.key}_y`).addEventListener('input', e => { c.y = +e.target.value; update(); });
+  }
+}
+function syncControls(){
+  for(const c of customers){
+    $(`#${c.key}_x`).value = c.x; $(`#${c.key}_y`).value = c.y;
+    $(`#${c.key}_xv`).textContent = `€${c.x}`;
+    $(`#${c.key}_yv`).textContent = `€${c.y}`;
+  }
+}
+
+function setPreset(a,b,c){
+  [customers[0].x, customers[0].y] = a;
+  [customers[1].x, customers[1].y] = b;
+  [customers[2].x, customers[2].y] = c;
+  $('#refSel').value = 'ana';
+  update();
+}
+$('#pDefault').onclick = () => setPreset([8,2],[80,20],[10,30]);
+$('#pScale').onclick   = () => setPreset([40,10],[80,20],[10,30]);
+$('#pTech').onclick    = () => setPreset([6,20],[80,20],[10,30]);
+$('#pAgree').onclick   = () => setPreset([70,15],[80,20],[10,30]);
+['#refSel','#showAngles','#showDist','#showUnit'].forEach(s => $(s).addEventListener('change', update));
+
+/* =========================
+   Drawing
+========================= */
+function el(tag, attrs={}, text){
+  const e = document.createElementNS(NS, tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]);
+  if(text !== undefined) e.textContent = text;
+  svg.appendChild(e);
+  return e;
+}
+function updateSizes(){
+  W = svg.clientWidth; H = svg.clientHeight;
+  const m = 50;
+  S = Math.min(W - 2*m, H - 2*m) / MAX;   // same scale on both axes so angles are true
+  ox = m + ((W - 2*m) - S*MAX)/2;
+  oy = H - m - ((H - 2*m) - S*MAX)/2;
+}
+const X = v => ox + v*S;
+const Y = v => oy - v*S;
+
+function arc(a, b, r, color){
+  const a1 = Math.atan2(a.y, a.x), a2 = Math.atan2(b.y, b.x);
+  const lo = Math.min(a1,a2), hi = Math.max(a1,a2);
+  const x1 = ox + r*Math.cos(lo), y1 = oy - r*Math.sin(lo);
+  const x2 = ox + r*Math.cos(hi), y2 = oy - r*Math.sin(hi);
+  el('path', { d:`M ${x1} ${y1} A ${r} ${r} 0 0 0 ${x2} ${y2}`, fill:'none', stroke:color, 'stroke-width':2 });
+  const mid = (lo+hi)/2;
+  return { x: ox + (r+14)*Math.cos(mid), y: oy - (r+14)*Math.sin(mid) };
+}
+
+function arrow(p, color, label, isRef){
+  const x = X(p.x), y = Y(p.y);
+  el('line', { x1:ox, y1:oy, x2:x, y2:y, stroke:color, 'stroke-width': isRef ? 3.5 : 2.5, 'marker-end':`url(#ah_${label})` });
+}
+
+function draw(){
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  updateSizes();
+  const unitMode = $('#showUnit').checked;
+
+  // arrowheads
+  const defs = el('defs');
+  for(const c of customers){
+    const mk = document.createElementNS(NS,'marker');
+    mk.setAttribute('id', `ah_${c.key}`); mk.setAttribute('viewBox','0 0 10 10');
+    mk.setAttribute('refX','8'); mk.setAttribute('refY','5');
+    mk.setAttribute('markerWidth','6'); mk.setAttribute('markerHeight','6'); mk.setAttribute('orient','auto-start-reverse');
+    const path = document.createElementNS(NS,'path'); path.setAttribute('d','M0,0 L10,5 L0,10 z'); path.setAttribute('fill', c.hex);
+    mk.appendChild(path); defs.appendChild(mk);
+  }
+
+  // grid + axes
+  for(let i=0;i<=MAX;i+=10){
+    el('line', { x1:X(i), y1:Y(0), x2:X(i), y2:Y(MAX), stroke:'#e5e7eb', 'stroke-width':1 });
+    el('line', { x1:X(0), y1:Y(i), x2:X(MAX), y2:Y(i), stroke:'#e5e7eb', 'stroke-width':1 });
+    if(i % 20 === 0){
+      el('text', { x:X(i), y:Y(0)+16, 'text-anchor':'middle', 'font-size':11, fill:'#6b7280' }, i);
+      el('text', { x:X(0)-8, y:Y(i)+4, 'text-anchor':'end', 'font-size':11, fill:'#6b7280' }, i);
+    }
+  }
+  el('line', { x1:X(0), y1:Y(0), x2:X(MAX), y2:Y(0), stroke:'#9ca3af', 'stroke-width':1.5 });
+  el('line', { x1:X(0), y1:Y(0), x2:X(0), y2:Y(MAX), stroke:'#9ca3af', 'stroke-width':1.5 });
+  el('text', { x:X(MAX/2), y:Y(0)+36, 'text-anchor':'middle', 'font-size':13, fill:'#374151' }, 'Fashion spend (€/month)');
+  const yl = el('text', { x:X(0)-36, y:Y(MAX/2), 'text-anchor':'middle', 'font-size':13, fill:'#374151' }, 'Electronics spend (€/month)');
+  yl.setAttribute('transform', `rotate(-90 ${X(0)-36} ${Y(MAX/2)})`);
+
+  // positions to draw (raw or unit-scaled to radius R in data units)
+  const R = 50; // unit circle drawn at radius 50 data units for visibility
+  const pos = c => unitMode ? { x: unit(c).x*R, y: unit(c).y*R } : { x:c.x, y:c.y };
+
+  if(unitMode){
+    el('path', { d:`M ${X(R)} ${Y(0)} A ${R*S} ${R*S} 0 0 0 ${X(0)} ${Y(R)}`, fill:'none', stroke:'#9ca3af', 'stroke-dasharray':'4 4', 'stroke-width':1.5 });
+    el('text', { x:X(R*0.72)+6, y:Y(R*0.72)-6, 'font-size':11, fill:'#6b7280' }, '‖v‖ = 1');
+  }
+
+  const ref = byKey($('#refSel').value);
+  const others = customers.filter(c => c !== ref);
+
+  // Euclidean distance lines
+  if($('#showDist').checked){
+    for(const o of others){
+      const a = pos(ref), b = pos(o);
+      el('line', { x1:X(a.x), y1:Y(a.y), x2:X(b.x), y2:Y(b.y), stroke:'#6b7280', 'stroke-width':1.5, 'stroke-dasharray':'6 4' });
+      const d = unitMode ? euclid(unit(ref), unit(o)) : euclid(ref, o);
+      const t = el('text', { x:(X(a.x)+X(b.x))/2 + 6, y:(Y(a.y)+Y(b.y))/2 - 6, 'font-size':12, fill:'#374151', 'font-weight':600 }, `d = ${unitMode ? f2(d) : f1(d)}`);
+      t.setAttribute('paint-order','stroke'); t.setAttribute('stroke','#fff'); t.setAttribute('stroke-width','4');
+    }
+  }
+
+  // Angle arcs
+  if($('#showAngles').checked && norm(ref) > 0){
+    others.forEach((o,i) => {
+      if(norm(o) === 0) return;
+      const r = 34 + i*22;
+      const lp = arc(ref, o, r, o.hex);
+      const t = el('text', { x:lp.x, y:lp.y, 'font-size':11.5, fill:o.hex, 'font-weight':700, 'text-anchor':'middle' }, `${f1(angleDeg(ref,o))}°`);
+      t.setAttribute('paint-order','stroke'); t.setAttribute('stroke','#fff'); t.setAttribute('stroke-width','4');
+    });
+  }
+
+  // vectors + handles
+  for(const c of customers){
+    const p = pos(c);
+    arrow(p, c.hex, c.key, c === ref);
+    const h = el('circle', { cx:X(c.x), cy:Y(c.y), r:8, fill:c.hex, stroke:'#fff', 'stroke-width':2, style:'cursor:grab' });
+    h.dataset.key = c.key;
+    if(unitMode){ h.setAttribute('fill-opacity', 0.35); }
+    const lab = el('text', { x:X(c.x)+11, y:Y(c.y)-10, 'font-size':13, 'font-weight':700, fill:c.hex }, `${c.name} (${c.x}, ${c.y})`);
+    lab.setAttribute('paint-order','stroke'); lab.setAttribute('stroke','#fff'); lab.setAttribute('stroke-width','4');
+  }
+  el('circle', { cx:ox, cy:oy, r:3, fill:'#111' });
+}
+
+/* =========================
+   Results panel
+========================= */
+function updateResults(){
+  const ref = byKey($('#refSel').value);
+  const others = customers.filter(c => c !== ref);
+  const pairs = [
+    [customers[0], customers[1]],
+    [customers[0], customers[2]],
+    [customers[1], customers[2]],
+  ];
+  const tb = $('#metricsBody'); tb.innerHTML = '';
+
+  // best per metric (relative to reference)
+  const cosVals = others.map(o => cosSim(ref,o));
+  const dVals = others.map(o => euclid(ref,o));
+  const bestCos = others[cosVals[0] >= cosVals[1] ? 0 : 1];
+  const bestD   = others[dVals[0] <= dVals[1] ? 0 : 1];
+
+  for(const [a,b] of pairs){
+    const involvesRef = (a === ref || b === ref);
+    const other = a === ref ? b : (b === ref ? a : null);
+    const c = cosSim(a,b), ang = angleDeg(a,b), d = euclid(a,b);
+    const tr = document.createElement('tr');
+    if(!involvesRef) tr.style.color = '#9ca3af';
+    tr.innerHTML = `
+      <td><span class="swatch" style="background:${a.color}"></span><span class="swatch" style="background:${b.color}"></span>${a.name}–${b.name}</td>
+      <td>${involvesRef && other === bestCos ? `<span class="best">${f2(c)}</span>` : f2(c)}</td>
+      <td>${f1(ang)}°</td>
+      <td>${involvesRef && other === bestD ? `<span class="best">${f1(d)}</span>` : f1(d)}</td>`;
+    tb.appendChild(tr);
+  }
+
+  const v = $('#verdict');
+  if(bestCos === bestD){
+    v.className = 'verdict agree';
+    v.innerHTML = `<b>Both metrics agree:</b> ${ref.name} is most similar to <b style="color:${bestCos.hex}">${bestCos.name}</b>.`;
+  }else{
+    v.className = 'verdict disagree';
+    v.innerHTML = `<b>The metrics disagree.</b><br>
+      Cosine says ${ref.name}'s <i>taste</i> (spending mix) matches <b style="color:${bestCos.hex}">${bestCos.name}</b>.<br>
+      Euclidean says ${ref.name}'s <i>wallet size</i> is closer to <b style="color:${bestD.hex}">${bestD.name}</b>.<br>
+      For a recommender, which one would you trust?`;
+  }
+
+  // Step-by-step for ref vs best cosine partner
+  const o = bestCos, A = ref;
+  const dp = dot(A,o), nA = norm(A), nO = norm(o);
+  const uA = unit(A), uO = unit(o);
+  $('#calc').textContent =
+`${A.name} = (${A.x}, ${A.y})    ${o.name} = (${o.x}, ${o.y})
+
+Dot product   A·B = ${A.x}×${o.x} + ${A.y}×${o.y} = ${f1(dp)}
+Norm          ‖A‖ = √(${A.x}² + ${A.y}²) = ${f2(nA)}
+Norm          ‖B‖ = √(${o.x}² + ${o.y}²) = ${f2(nO)}
+
+cos(θ) = ${f1(dp)} / (${f2(nA)} × ${f2(nO)}) = ${f2(cosSim(A,o))}
+θ      = ${f1(angleDeg(A,o))}°
+
+Unit vectors: Â = (${f2(uA.x)}, ${f2(uA.y)})  B̂ = (${f2(uO.x)}, ${f2(uO.y)})
+Spending mix: ${A.name} ${Math.round(100*A.x/(A.x+A.y||1))}% fashion · ${o.name} ${Math.round(100*o.x/(o.x+o.y||1))}% fashion`;
+
+  $('#readout').textContent = `reference: ${ref.name}`;
+}
+
+function update(){
+  syncControls();
+  draw();
+  updateResults();
+}
+
+/* =========================
+   Dragging
+========================= */
+function toData(e){
+  const r = svg.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  return {
+    x: Math.round(Math.max(0, Math.min(MAX, (px - ox)/S))),
+    y: Math.round(Math.max(0, Math.min(MAX, (oy - py)/S))),
+  };
+}
+svg.addEventListener('pointerdown', e => {
+  const k = e.target.dataset && e.target.dataset.key;
+  if(!k) return;
+  dragging = byKey(k);
+  svg.setPointerCapture(e.pointerId);
+});
+svg.addEventListener('pointermove', e => {
+  if(!dragging) return;
+  const p = toData(e);
+  dragging.x = p.x; dragging.y = p.y;
+  update();
+});
+svg.addEventListener('pointerup', () => { dragging = null; });
+window.addEventListener('resize', update);
+
+/* =========================
+   Init
+========================= */
+buildControls();
+update();
+</script>
+</body>
+</html>
