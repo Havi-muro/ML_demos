@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Feature Scaling Playground — Normalization vs. Standardization</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --panel-bg:#f7f7fb; --ink:#222; --muted:#6b7280; --accent:#0ea5e9;
+    --ok:#16a34a; --warn:#f59e0b; --err:#ef4444; --grid:#e5e7eb;
+    --raw:#6b7280; --mm:#0ea5e9; --z:#7c3aed; --sel:#111; --nn:#f97316;
+  }
+  html,body{height:100%; margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,"Helvetica Neue",Arial,"Noto Sans",sans-serif; color:var(--ink);}
+  #app{
+    height:100%;
+    display:grid;
+    grid-template-columns: 300px 1fr 400px;
+    grid-template-rows: 100%;
+    gap:10px;
+    padding:10px;
+    box-sizing:border-box;
+    background:#fff;
+  }
+  .panel{
+    border:1px solid var(--grid);
+    border-radius:10px;
+    background:var(--panel-bg);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+    min-height:0;
+  }
+  .panel h2{
+    font-size:16px; margin:0; padding:10px 12px; background:#fff; border-bottom:1px solid var(--grid);
+  }
+  .panel .content{ padding:10px; overflow:auto; }
+  fieldset{ border:1px solid var(--grid); border-radius:8px; margin:8px 0; }
+  legend{ color:var(--muted); font-size:12px; padding:0 6px; }
+  label{ display:block; margin:6px 0; font-size:14px; }
+  input[type="number"], select{
+    width:100%; box-sizing:border-box; padding:6px 8px; border-radius:6px; border:1px solid var(--grid); background:#fff;
+  }
+  input[type="range"]{ width:100%; }
+  button{
+    cursor:pointer; border:1px solid var(--grid); background:#fff; color:var(--ink);
+    border-radius:8px; padding:8px 10px; margin:4px 2px; font-weight:600;
+  }
+  button.primary{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  .row{ display:flex; gap:6px; align-items:center; }
+  .row > *{ flex:1; }
+  small.note{ color:var(--muted); display:block; margin-top:4px; }
+  .hint{ font-size:12px; color:var(--muted); }
+  .val{ float:right; font-variant-numeric:tabular-nums; color:var(--muted); }
+  .kreadout { font-size:12px; color:var(--muted); margin-left:auto; font-weight:400; }
+  .toolbar{ display:flex; flex-wrap:wrap; gap:6px; }
+
+  /* middle grid */
+  .mid{ flex:1; overflow:auto; background:#fff; border-top:1px solid var(--grid); padding:10px; }
+  .cols{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:10px; }
+  .col h3{ font-size:13px; margin:0 0 4px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-height:34px; align-content:flex-start; }
+  .col h3 .tag{ font-weight:400; color:var(--muted); font-size:11px; flex-basis:100%; }
+  .col svg{ width:100%; display:block; border:1px solid var(--grid); border-radius:8px; background:#fff; }
+  .col svg.scatter{ cursor:crosshair; }
+  .rowlabel{ font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; }
+
+  /* right panel */
+  .formula{ background:#fff; border:1px solid var(--grid); border-radius:8px; padding:8px 10px; margin:6px 0; font-size:14px; }
+  .formula b{ display:block; font-size:13px; margin-bottom:4px; }
+  .frac{ display:inline-flex; flex-direction:column; vertical-align:middle; text-align:center; margin:0 4px; font-size:13px; }
+  .frac > span:first-child{ border-bottom:1px solid var(--ink); padding:0 4px; }
+  table.metrics{ width:100%; border-collapse:collapse; font-size:12px; background:#fff; }
+  table.metrics th, table.metrics td{ padding:5px 6px; border-bottom:1px solid var(--grid); text-align:right; font-variant-numeric:tabular-nums; }
+  table.metrics th:first-child, table.metrics td:first-child{ text-align:left; }
+  table.metrics th{ color:var(--muted); font-weight:600; }
+  table.metrics tr.grp td{ background:#f3f4f6; font-weight:700; text-align:left; }
+  .verdict{ border-radius:8px; padding:8px 10px; font-size:13px; line-height:1.45; margin:6px 0; border:1px solid var(--grid); background:#fff; }
+  .verdict.warn{ border-color:#fcd34d; background:#fffbeb; }
+  ul.take{ margin:6px 0 0 18px; padding:0; font-size:13px; line-height:1.5; }
+
+  @media (max-width: 1200px){
+    #app{ grid-template-columns: 1fr; grid-template-rows:auto auto auto; height:auto; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- LEFT: Controls -->
+  <div class="panel">
+    <h2>Controls</h2>
+    <div class="content">
+      <fieldset>
+        <legend>Customers</legend>
+        <label>Number of customers <span class="val" id="nVal"></span>
+          <input type="range" id="n" min="30" max="400" step="10" value="120" />
+        </label>
+        <label>Income spread (skew) <span class="val" id="skewVal"></span>
+          <input type="range" id="skew" min="0.1" max="0.9" step="0.05" value="0.45" />
+        </label>
+        <div class="toolbar">
+          <button id="btnNew" class="primary">New sample</button>
+        </div>
+        <small class="note">Two features: <b>age</b> (years) and <b>annual income</b> (€). Very different units and ranges.</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Outlier</legend>
+        <label class="row"><span>Add a very rich customer</span><input type="checkbox" id="outlier" style="flex:0" /></label>
+        <label>Outlier income <span class="val" id="outVal"></span>
+          <input type="range" id="outInc" min="200000" max="5000000" step="50000" value="2000000" />
+        </label>
+        <small class="note">Min-max suffers most: everyone else is squeezed into a thin slice near 0. The z-score is affected too (the outlier inflates μ and σ), just less. For heavy outliers use robust scaling (median / IQR).</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Display</legend>
+        <label class="row"><span>Equal axis scale (what a distance metric "sees")</span><input type="checkbox" id="equal" checked style="flex:0" /></label>
+        <small class="note">With equal scales, 1 unit on the x-axis is as long as 1 unit on the y-axis, exactly like in Euclidean distance, k-NN or k-means.</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Selection</legend>
+        <div class="hint"><b>Click any customer</b> in any plot. The same customer is highlighted everywhere, together with its <span style="color:var(--nn);font-weight:700">nearest neighbour</span> in each space.</div>
+        <div class="toolbar"><button id="btnRandSel">Pick random customer</button></div>
+      </fieldset>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Plots -->
+  <div class="panel">
+    <h2 style="display:flex;align-items:center;gap:8px;">
+      Same customers, three scalings
+      <span id="readout" class="kreadout"></span>
+    </h2>
+    <div class="mid">
+      <div class="cols">
+        <div class="col"><h3><span class="dot" style="background:var(--raw)"></span>Raw data<span class="tag">€ and years</span></h3><svg id="sc0" class="scatter" viewBox="0 0 300 300"></svg></div>
+        <div class="col"><h3><span class="dot" style="background:var(--mm)"></span>Normalization<span class="tag">min-max → [0, 1]</span></h3><svg id="sc1" class="scatter" viewBox="0 0 300 300"></svg></div>
+        <div class="col"><h3><span class="dot" style="background:var(--z)"></span>Standardization<span class="tag">z-score → μ 0, σ 1</span></h3><svg id="sc2" class="scatter" viewBox="0 0 300 300"></svg></div>
+      </div>
+      <div class="rowlabel">Distribution of <b>age</b> (dashed line = mean)</div>
+      <div class="cols">
+        <div class="col"><svg id="ha0" viewBox="0 0 300 110"></svg></div>
+        <div class="col"><svg id="ha1" viewBox="0 0 300 110"></svg></div>
+        <div class="col"><svg id="ha2" viewBox="0 0 300 110"></svg></div>
+      </div>
+      <div class="rowlabel">Distribution of <b>income</b> (dashed line = mean)</div>
+      <div class="cols">
+        <div class="col"><svg id="hi0" viewBox="0 0 300 110"></svg></div>
+        <div class="col"><svg id="hi1" viewBox="0 0 300 110"></svg></div>
+        <div class="col"><svg id="hi2" viewBox="0 0 300 110"></svg></div>
+      </div>
+      <p class="hint" style="margin-top:10px">Notice that the <b>shape</b> of each histogram never changes. Scaling only moves and stretches the axis. Neither method makes skewed data normal.</p>
+    </div>
+  </div>
+
+  <!-- RIGHT: Results -->
+  <div class="panel">
+    <h2>What changed?</h2>
+    <div class="content">
+      <div class="formula">
+        <b style="color:var(--mm)">Normalization (min-max)</b>
+        x′ = <span class="frac"><span>x − min</span><span>max − min</span></span>
+        <span class="hint">→ every feature in [0, 1]</span>
+      </div>
+      <div class="formula">
+        <b style="color:var(--z)">Standardization (z-score)</b>
+        z = <span class="frac"><span>x − μ</span><span>σ</span></span>
+        <span class="hint">→ mean 0, std 1, no fixed bounds</span>
+      </div>
+
+      <fieldset>
+        <legend>Summary statistics</legend>
+        <table class="metrics">
+          <thead><tr><th></th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr></thead>
+          <tbody id="stats"></tbody>
+        </table>
+      </fieldset>
+
+      <fieldset>
+        <legend>Nearest neighbour of the selected customer</legend>
+        <div id="nn"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Distance breakdown (selected → raw neighbour)</legend>
+        <div id="contrib"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Business takeaway</legend>
+        <ul class="take">
+          <li><b>Why scale at all?</b> Distance-based models (k-NN, k-means, SVM, PCA, regularised regression) treat a difference of €1 the same as a difference of 1 year. Without scaling, income decides everything.</li>
+          <li><b>Normalization</b> gives bounded features [0, 1]. Good for image pixels, neural-net inputs and scores that need a fixed range. Very sensitive to outliers.</li>
+          <li><b>Standardization</b> centres and rescales by spread. The default for most ML pipelines; values are not bounded and it is less sensitive to outliers than min-max, but not immune.</li>
+          <li>Tree models (decision trees, random forests, XGBoost) don't need scaling.</li>
+          <li>Fit the scaler on the <b>training set only</b>, then apply it to test data, otherwise you leak information.</li>
+        </ul>
+      </fieldset>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================
+   Utility & Globals
+========================= */
+const $ = s => document.querySelector(s);
+const NS = 'http://www.w3.org/2000/svg';
+const COLS = ['#6b7280', '#0ea5e9', '#7c3aed'];
+const NAMES = ['Raw', 'Normalized', 'Standardized'];
+
+let seed = 7;
+function rng(){ seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; }
+function randn(){ let u=0,v=0; while(!u) u=rng(); while(!v) v=rng(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+
+let base = [];       // generated customers [{age, inc}]
+let data = [];       // base + optional outlier
+let spaces = [];     // [raw, minmax, z] each = array of [x,y]
+let selected = 0;
+
+const fmtEur = v => v >= 1e6 ? `€${(v/1e6).toFixed(2)}M` : `€${Math.round(v/1000)}k`;
+const f2 = v => (Math.round(v*100)/100).toFixed(2);
+
+/* =========================
+   Data
+========================= */
+function generate(){
+  const n = +$('#n').value, sk = +$('#skew').value;
+  base = [];
+  for(let i=0;i<n;i++){
+    const age = Math.max(18, Math.min(80, 42 + 12*randn()));
+    const inc = Math.exp(Math.log(38000) + 0.012*(age-42) + sk*randn());
+    base.push({ age, inc: Math.min(inc, 400000) });
+  }
+}
+function assemble(){
+  data = base.map(d => ({...d, out:false}));
+  if($('#outlier').checked) data.push({ age:45, inc:+$('#outInc').value, out:true });
+  if(selected >= data.length) selected = 0;
+
+  const raw = data.map(d => [d.age, d.inc]);
+  const col = (k) => raw.map(r => r[k]);
+  const stats = [0,1].map(k => {
+    const v = col(k), n = v.length;
+    const mean = v.reduce((a,b)=>a+b,0)/n;
+    const sd = Math.sqrt(v.reduce((a,b)=>a+(b-mean)**2,0)/n);
+    return { mean, sd, min: Math.min(...v), max: Math.max(...v) };
+  });
+  const mm = raw.map(r => r.map((x,k) => (x - stats[k].min) / ((stats[k].max - stats[k].min) || 1)));
+  const z  = raw.map(r => r.map((x,k) => (x - stats[k].mean) / (stats[k].sd || 1)));
+  spaces = [raw, mm, z];
+}
+function describe(space){
+  return [0,1].map(k => {
+    const v = space.map(r => r[k]), n = v.length;
+    const mean = v.reduce((a,b)=>a+b,0)/n;
+    const sd = Math.sqrt(v.reduce((a,b)=>a+(b-mean)**2,0)/n);
+    return { mean, sd, min: Math.min(...v), max: Math.max(...v) };
+  });
+}
+function nearest(space, i){
+  let best=-1, bd=Infinity;
+  for(let j=0;j<space.length;j++){
+    if(j===i) continue;
+    const d = Math.hypot(space[i][0]-space[j][0], space[i][1]-space[j][1]);
+    if(d<bd){ bd=d; best=j; }
+  }
+  return { j:best, d:bd };
+}
+
+/* =========================
+   Drawing helpers
+========================= */
+function clear(svg){ while(svg.firstChild) svg.removeChild(svg.firstChild); }
+function el(svg, tag, attrs={}, text){
+  const e = document.createElementNS(NS, tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]);
+  if(text !== undefined) e.textContent = text;
+  svg.appendChild(e); return e;
+}
+function niceTicks(lo, hi, n=4){
+  const span = hi - lo || 1, step0 = span / n;
+  const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1,2,2.5,5,10].map(m=>m*mag).find(s => s >= step0) || mag*10;
+  const out = []; for(let t=Math.ceil(lo/step)*step; t<=hi+1e-9; t+=step) out.push(+t.toFixed(10));
+  return out;
+}
+function tickLabel(v, s, k){
+  if(s===0 && k===1) return v>=1e6 ? (v/1e6).toFixed(1)+'M' : Math.round(v/1000)+'k';
+  if(Math.abs(v) >= 100) return Math.round(v);
+  return +v.toFixed(2);
+}
+
+/* =========================
+   Scatter plots
+========================= */
+const scales = [];   // per space: {X, Y, inv}
+function drawScatter(s){
+  const svg = $('#sc'+s); clear(svg);
+  const pts = spaces[s], W=300, H=300, mL=40, mB=30, mT=10, mR=10;
+  const iw = W-mL-mR, ih = H-mT-mB;
+  let xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+  let x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
+  const padx=(x1-x0||1)*0.05, pady=(y1-y0||1)*0.05; x0-=padx; x1+=padx; y0-=pady; y1+=pady;
+
+  if($('#equal').checked){
+    // same units per pixel on both axes; centre the smaller range
+    const span = Math.max(x1-x0, y1-y0);
+    const cx=(x0+x1)/2, cy=(y0+y1)/2;
+    x0=cx-span/2; x1=cx+span/2; y0=cy-span/2; y1=cy+span/2;
+  }
+  const X = v => mL + (v-x0)/(x1-x0)*iw;
+  const Y = v => mT + ih - (v-y0)/(y1-y0)*ih;
+  scales[s] = { X, Y };
+
+  // grid & ticks
+  for(const t of niceTicks(x0,x1)){ el(svg,'line',{x1:X(t),y1:mT,x2:X(t),y2:mT+ih,stroke:'#f0f1f3'}); el(svg,'text',{x:X(t),y:H-mB+13,'text-anchor':'middle','font-size':9,fill:'#6b7280'},tickLabel(t,s,0)); }
+  for(const t of niceTicks(y0,y1)){ el(svg,'line',{x1:mL,y1:Y(t),x2:mL+iw,y2:Y(t),stroke:'#f0f1f3'}); el(svg,'text',{x:mL-4,y:Y(t)+3,'text-anchor':'end','font-size':9,fill:'#6b7280'},tickLabel(t,s,1)); }
+  el(svg,'rect',{x:mL,y:mT,width:iw,height:ih,fill:'none',stroke:'#d1d5db'});
+  if(s===2 || (s===1)){ // reference lines
+    const r = s===2 ? 0 : null;
+    if(r!==null){
+      if(r>=x0&&r<=x1) el(svg,'line',{x1:X(0),y1:mT,x2:X(0),y2:mT+ih,stroke:'#c4b5fd','stroke-dasharray':'3 3'});
+      if(r>=y0&&r<=y1) el(svg,'line',{x1:mL,y1:Y(0),x2:mL+iw,y2:Y(0),stroke:'#c4b5fd','stroke-dasharray':'3 3'});
+    }
+  }
+  el(svg,'text',{x:mL+iw/2,y:H-4,'text-anchor':'middle','font-size':10,fill:'#374151'}, s===0?'age (years)':'age (scaled)');
+  const yl = el(svg,'text',{x:10,y:mT+ih/2,'text-anchor':'middle','font-size':10,fill:'#374151'}, s===0?'income (€)':'income (scaled)');
+  yl.setAttribute('transform',`rotate(-90 10 ${mT+ih/2})`);
+
+  // clip
+  const cid='clip'+s;
+  const defs=el(svg,'defs'); const cp=document.createElementNS(NS,'clipPath'); cp.setAttribute('id',cid);
+  const cr=document.createElementNS(NS,'rect'); cr.setAttribute('x',mL); cr.setAttribute('y',mT); cr.setAttribute('width',iw); cr.setAttribute('height',ih);
+  cp.appendChild(cr); defs.appendChild(cp);
+  const g = el(svg,'g',{'clip-path':`url(#${cid})`});
+
+  pts.forEach((p,i) => {
+    el(g,'circle',{cx:X(p[0]),cy:Y(p[1]),r:data[i].out?4.5:2.8,fill:data[i].out?'#ef4444':COLS[s],'fill-opacity':data[i].out?1:0.55});
+  });
+
+  // selection + nearest neighbour
+  const nn = nearest(pts, selected);
+  if(nn.j>=0){
+    const a=pts[selected], b=pts[nn.j];
+    el(g,'line',{x1:X(a[0]),y1:Y(a[1]),x2:X(b[0]),y2:Y(b[1]),stroke:'#f97316','stroke-width':1.5});
+    el(g,'circle',{cx:X(b[0]),cy:Y(b[1]),r:6,fill:'none',stroke:'#f97316','stroke-width':2});
+  }
+  el(g,'circle',{cx:X(pts[selected][0]),cy:Y(pts[selected][1]),r:6,fill:'none',stroke:'#111','stroke-width':2});
+}
+
+/* =========================
+   Histograms
+========================= */
+function drawHist(svgId, values, s, k){
+  const svg = $(svgId); clear(svg);
+  const W=300, H=110, mL=10, mR=10, mT=8, mB=22, iw=W-mL-mR, ih=H-mT-mB, B=24;
+  const lo=Math.min(...values), hi=Math.max(...values), span=(hi-lo)||1;
+  const bins=new Array(B).fill(0);
+  for(const v of values) bins[Math.min(B-1, Math.floor((v-lo)/span*B))]++;
+  const mx=Math.max(...bins);
+  const X = v => mL + (v-lo)/span*iw;
+  bins.forEach((c,i)=>{
+    const h = c/mx*ih;
+    el(svg,'rect',{x:mL+i*iw/B+0.5,y:mT+ih-h,width:iw/B-1,height:h,fill:COLS[s],'fill-opacity':0.7});
+  });
+  el(svg,'line',{x1:mL,y1:mT+ih,x2:mL+iw,y2:mT+ih,stroke:'#9ca3af'});
+  const mean = values.reduce((a,b)=>a+b,0)/values.length;
+  el(svg,'line',{x1:X(mean),y1:mT,x2:X(mean),y2:mT+ih,stroke:'#111','stroke-dasharray':'4 3'});
+  const lab = v => (s===0 && k===1) ? fmtEur(v) : (s===0 ? Math.round(v) : f2(v));
+  el(svg,'text',{x:mL,y:H-6,'font-size':10,fill:'#6b7280'}, lab(lo));
+  el(svg,'text',{x:mL+iw,y:H-6,'font-size':10,fill:'#6b7280','text-anchor':'end'}, lab(hi));
+  const right = X(mean) < mL+iw*0.7;
+  el(svg,'text',{x:X(mean)+(right?4:-4),y:mT+9,'font-size':10,fill:'#111','text-anchor':right?'start':'end'}, 'μ '+lab(mean));
+}
+
+/* =========================
+   Right panel
+========================= */
+function updatePanel(){
+  // stats
+  const tb = $('#stats'); tb.innerHTML='';
+  const feat = ['Age','Income'];
+  spaces.forEach((sp, s) => {
+    const st = describe(sp);
+    tb.insertAdjacentHTML('beforeend', `<tr class="grp"><td colspan="5" style="color:${COLS[s]}">${NAMES[s]}</td></tr>`);
+    st.forEach((d,k) => {
+      const f = (s===0 && k===1) ? fmtEur : (s===0 ? (v=>v.toFixed(1)) : f2);
+      tb.insertAdjacentHTML('beforeend', `<tr><td>${feat[k]}</td><td>${f(d.mean)}</td><td>${f(d.sd)}</td><td>${f(d.min)}</td><td>${f(d.max)}</td></tr>`);
+    });
+  });
+
+  // nearest neighbours
+  const me = data[selected];
+  const nns = spaces.map(sp => nearest(sp, selected));
+  let html = `<div style="font-size:13px;margin-bottom:6px">Selected: <b>age ${Math.round(me.age)}</b>, <b>${fmtEur(me.inc)}</b>${me.out?' <span style="color:#ef4444">(outlier)</span>':''}</div>
+    <table class="metrics"><thead><tr><th>Space</th><th>Neighbour age</th><th>Income</th><th>Δ age</th></tr></thead><tbody>`;
+  nns.forEach((nn,s) => {
+    const o = data[nn.j];
+    html += `<tr><td style="color:${COLS[s]};font-weight:700">${NAMES[s]}</td><td>${Math.round(o.age)}</td><td>${fmtEur(o.inc)}</td><td>${Math.round(Math.abs(o.age-me.age))} yrs</td></tr>`;
+  });
+  html += `</tbody></table>`;
+  const sameScaled = nns[1].j === nns[2].j;
+  const rawAgeGap = Math.abs(data[nns[0].j].age - me.age);
+  html += `<div class="verdict ${rawAgeGap>5?'warn':''}">`;
+  html += rawAgeGap>5
+    ? `On raw data the "closest" customer is <b>${Math.round(rawAgeGap)} years</b> apart: the model only looks at income.`
+    : `On raw data the neighbour happens to be similar in age too. Try another customer.`;
+  html += sameScaled ? ` Both scalings agree on the neighbour.` : ` Normalization and standardization pick <b>different</b> neighbours, because they weight the features slightly differently.`;
+  html += `</div>`;
+  $('#nn').innerHTML = html;
+
+  // contribution of each feature to the squared distance (raw space)
+  const j = nns[0].j, r = spaces[0];
+  const dA = (r[selected][0]-r[j][0])**2, dI = (r[selected][1]-r[j][1])**2, tot = dA+dI || 1;
+  const bar = (lbl, v, c) => `<div style="font-size:12px;margin:4px 0">${lbl} <span class="val">${(100*v/tot).toFixed(v/tot<0.001&&v>0?4:1)}%</span>
+      <div style="height:8px;background:#eef0f3;border-radius:4px;overflow:hidden"><div style="height:100%;width:${100*v/tot}%;background:${c}"></div></div></div>`;
+  $('#contrib').innerHTML =
+    `<div class="hint">Share of the raw squared Euclidean distance coming from each feature:</div>` +
+    bar('Age', dA, '#16a34a') + bar('Income', dI, '#f59e0b') +
+    `<small class="note">Income differences are measured in thousands of €, age in tens of years, so income dominates.</small>`;
+
+  $('#readout').textContent = `n = ${data.length}${$('#outlier').checked ? ' (incl. outlier)' : ''}`;
+}
+
+/* =========================
+   Main update
+========================= */
+function drawAll(){
+  $('#nVal').textContent = $('#n').value;
+  $('#skewVal').textContent = (+$('#skew').value).toFixed(2);
+  $('#outVal').textContent = fmtEur(+$('#outInc').value);
+  assemble();
+  for(let s=0;s<3;s++) drawScatter(s);
+  for(let s=0;s<3;s++){
+    drawHist('#ha'+s, spaces[s].map(p=>p[0]), s, 0);
+    drawHist('#hi'+s, spaces[s].map(p=>p[1]), s, 1);
+  }
+  updatePanel();
+}
+
+/* =========================
+   Interactions
+========================= */
+$('#btnNew').onclick = () => { seed = Math.floor(Math.random()*1e9); generate(); selected = 0; drawAll(); };
+$('#n').addEventListener('input', () => { generate(); drawAll(); });
+$('#skew').addEventListener('input', () => { generate(); drawAll(); });
+['#outlier','#equal'].forEach(s => $(s).addEventListener('change', drawAll));
+$('#outInc').addEventListener('input', () => { if(!$('#outlier').checked) $('#outlier').checked = true; drawAll(); });
+$('#btnRandSel').onclick = () => { selected = Math.floor(Math.random()*data.length); drawAll(); };
+
+for(let s=0;s<3;s++){
+  $('#sc'+s).addEventListener('pointerdown', e => {
+    const svg = e.currentTarget, r = svg.getBoundingClientRect();
+    const px = (e.clientX - r.left) * 300 / r.width, py = (e.clientY - r.top) * 300 / r.height;
+    const { X, Y } = scales[s];
+    let best=0, bd=Infinity;
+    spaces[s].forEach((p,i) => { const d = Math.hypot(X(p[0])-px, Y(p[1])-py); if(d<bd){ bd=d; best=i; } });
+    selected = best; drawAll();
+  });
+}
+
+/* =========================
+   Init
+========================= */
+generate();
+// start with a customer whose raw neighbour has a clearly different age (makes the point immediately)
+assemble();
+let bestGap = -1;
+for(let i=0;i<data.length;i++){ const nn = nearest(spaces[0], i); const g = Math.abs(data[nn.j].age - data[i].age); if(g > bestGap && g < 30){ bestGap = g; selected = i; } }
+drawAll();
+</script>
+</body>
+</html>
